@@ -436,7 +436,7 @@ Enable `pg_stat_statements` in the Postgres config from day one. It is, per the 
 A Go monorepo with clearly separated services and shared internal packages:
 
 ```
-market-data-pipeline/
+pulse/
 ├── README.md                     # the showcase: pitch, GIFs, architecture, "what I learned"
 ├── TECHNICAL_DESIGN.md           # this document
 ├── docker-compose.yml            # full local stack, one command
