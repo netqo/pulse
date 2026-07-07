@@ -27,7 +27,7 @@
 
 ## Roadmap phase
 
-<!-- Which phase from TECHNICAL_DESIGN.md does this advance? e.g. "Phase 1 - Pipeline". -->
+<!-- Which roadmap phase does this advance? e.g. "Phase 1 - Pipeline". -->
 
 ## How was this tested?
 
@@ -55,6 +55,6 @@
 
 - [ ] Title follows Conventional Commits
 - [ ] Self-reviewed the diff
-- [ ] Docs updated (README / TECHNICAL_DESIGN) where behavior or design changed
+- [ ] Docs updated (README) where behavior or design changed
 - [ ] No emojis, em-dashes, or other disallowed non-ASCII characters
 - [ ] CI is green

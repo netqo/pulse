@@ -38,9 +38,6 @@ artifact, not an afterthought.
 It is **not** a trading platform (no order execution, no financial advice, no real money) and **not**
 a multi-tenant SaaS. It exists to showcase database and distributed-backend engineering end to end.
 
-See [`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md) for the architectural source of truth: every
-component, technology, and schema decision, with the rationale documented inline.
-
 ## Highlights
 
 - **Database as a first-class citizen.** Range-partitioned time-series fact table, justified indexing
@@ -77,9 +74,6 @@ Four Go services, each with a single responsibility:
 | **Alerting** | Consumes the same stream on an independent consumer group, evaluates user rules, dispatches Telegram / webhook notifications, persists history. |
 | **API** | REST endpoints for the frontend and external consumers, read/write split via pgBouncer, Redis caching, the sandboxed Playground query endpoint. |
 
-The full Mermaid diagram and data-flow narrative live in
-[`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md#3-system-architecture).
-
 ## Tech stack
 
 | Layer | Choice |
@@ -102,8 +96,8 @@ The full Mermaid diagram and data-flow narrative live in
 | Kubernetes packaging | Helm 3 |
 | CI/CD | GitHub Actions |
 
-Every choice, and every rejected alternative, is defended in
-[Key design decisions](./TECHNICAL_DESIGN.md#14-key-design-decisions-defendable-rationale).
+Every technology is a deliberate choice, weighed against its alternatives, with the thesis of a
+native Go backend and the database as the centerpiece.
 
 ## Getting started
 
@@ -134,8 +128,6 @@ Development proceeds in independently demonstrable phases, each with an explicit
 - **Phase 4** - Observability: postgres_exporter, Prometheus, committed Grafana dashboards.
 - **Phase 5** - Replication + failover: primary + 2 replicas via Patroni, documented failover.
 - **Phase 6** - Polish: audit triggers, materialized views, Helm chart, `v1.0.0`.
-
-Full detail in [Execution roadmap](./TECHNICAL_DESIGN.md#13-execution-roadmap-by-phase).
 
 ## Topics
 

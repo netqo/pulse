@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Technical design document
-    url: https://github.com/netqo/pulse/blob/main/TECHNICAL_DESIGN.md
+  - name: Project overview
+    url: https://github.com/netqo/pulse/blob/main/README.md
     about: Architecture, technology decisions and roadmap. Read this before proposing large changes.
