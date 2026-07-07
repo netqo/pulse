@@ -1,0 +1,93 @@
+name: Detect components
+
+# Reusable workflow that inspects the repository tree and reports which parts of
+# the stack are present yet. Callers gate their jobs on these outputs so the
+# pipeline stays green on an empty scaffold and lights up automatically as each
+# component lands. Single source of truth for detection logic (DRY).
+
+on:
+  workflow_call:
+    outputs:
+      go:
+        description: "true when a Go module (go.mod) is present"
+        value: ${{ jobs.detect.outputs.go }}
+      web:
+        description: "true when the frontend (web/package.json) is present"
+        value: ${{ jobs.detect.outputs.web }}
+      migrations:
+        description: "true when SQL migrations are present"
+        value: ${{ jobs.detect.outputs.migrations }}
+      services:
+        description: "JSON array of cmd/<service> dirs that ship a Dockerfile"
+        value: ${{ jobs.detect.outputs.services }}
+      codeql_languages:
+        description: "JSON array of CodeQL languages to analyze"
+        value: ${{ jobs.detect.outputs.codeql_languages }}
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect components
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+      web: ${{ steps.check.outputs.web }}
+      migrations: ${{ steps.check.outputs.migrations }}
+      services: ${{ steps.check.outputs.services }}
+      codeql_languages: ${{ steps.check.outputs.codeql_languages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect present components
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          go=false
+          web=false
+          migrations=false
+          services='[]'
+
+          if [[ -f go.mod ]]; then go=true; fi
+          if [[ -f web/package.json ]]; then web=true; fi
+          if compgen -G "migrations/*.sql" > /dev/null; then migrations=true; fi
+
+          if [[ -d cmd ]]; then
+            services=$(find cmd -mindepth 2 -maxdepth 2 -name Dockerfile -printf '%h\n' \
+              | xargs -r -n1 basename | sort -u | jq -R . | jq -sc .)
+          fi
+          if [[ -z "$services" ]]; then services='[]'; fi
+
+          langs=()
+          if [[ "$go" == true ]]; then langs+=("go"); fi
+          if [[ "$web" == true ]]; then langs+=("javascript-typescript"); fi
+          if [[ ${#langs[@]} -gt 0 ]]; then
+            codeql_languages=$(printf '%s\n' "${langs[@]}" | jq -R . | jq -sc .)
+          else
+            codeql_languages='[]'
+          fi
+
+          {
+            echo "go=$go"
+            echo "web=$web"
+            echo "migrations=$migrations"
+            echo "services=$services"
+            echo "codeql_languages=$codeql_languages"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Detected components"
+            echo ""
+            echo "| Component | Present |"
+            echo "| --- | --- |"
+            echo "| Go module | $go |"
+            echo "| Frontend | $web |"
+            echo "| Migrations | $migrations |"
+            echo "| Service images | $services |"
+            echo "| CodeQL languages | $codeql_languages |"
+          } >> "$GITHUB_STEP_SUMMARY"
