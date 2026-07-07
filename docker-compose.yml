@@ -100,6 +100,25 @@ services:
       - up
     restart: "no"
 
+  fetcher:
+    build:
+      context: .
+      dockerfile: cmd/fetcher/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-market.ticks}
+      BINANCE_WS_URL: ${BINANCE_WS_URL:-wss://stream.binance.com:9443/stream}
+      SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT}
+      METRICS_ADDR: ":9101"
+    ports:
+      - "${FETCHER_METRICS_PORT:-9101}:9101"
+
 volumes:
   pgdata:
   redisdata:
