@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose an enhancement or new capability
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Proposals should align with the vision in TECHNICAL_DESIGN.md. Link related sections where relevant.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What problem does this solve, and why is it valuable?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Related roadmap phase
+      options:
+        - Phase 0 - Skeleton
+        - Phase 1 - Pipeline
+        - Phase 2 - SQL Playground
+        - Phase 3 - Alerting
+        - Phase 4 - Observability
+        - Phase 5 - Replication and failover
+        - Phase 6 - Polish
+        - Not sure / Cross-cutting
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
