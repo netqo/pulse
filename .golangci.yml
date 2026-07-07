@@ -1,0 +1,28 @@
+# golangci-lint configuration (schema v2).
+# Curated high-signal linters on top of the defaults, plus formatters.
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - bodyclose
+    - gocritic
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+  settings:
+    misspell:
+      locale: US
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/netqo/pulse
