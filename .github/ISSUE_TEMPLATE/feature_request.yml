@@ -4,7 +4,7 @@ labels: [enhancement]
 body:
   - type: markdown
     attributes:
-      value: Proposals should align with the vision in TECHNICAL_DESIGN.md. Link related sections where relevant.
+      value: Proposals should align with the project vision and roadmap. Link related work where relevant.
   - type: textarea
     id: problem
     attributes:
