@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -o /out/fetcher ./cmd/fetcher
 
 # --- runtime stage ---
-FROM gcr.io/distroless/static-nonroot AS runtime
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=build /out/fetcher /usr/local/bin/fetcher
 EXPOSE 9101
 USER nonroot:nonroot
