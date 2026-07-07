@@ -1,0 +1,44 @@
+# Categorizes the auto-generated release notes by PR label. Aligns with the
+# Conventional Commits vocabulary used across the project.
+
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - dependabot
+      - github-actions
+  categories:
+    - title: Features
+      labels:
+        - feat
+        - feature
+        - enhancement
+    - title: Bug Fixes
+      labels:
+        - fix
+        - bug
+    - title: Performance
+      labels:
+        - perf
+        - performance
+    - title: Documentation
+      labels:
+        - docs
+        - documentation
+    - title: Database and Migrations
+      labels:
+        - database
+        - migration
+    - title: Maintenance
+      labels:
+        - chore
+        - build
+        - ci
+        - refactor
+        - style
+        - test
+        - dependencies
+    - title: Other Changes
+      labels:
+        - "*"
