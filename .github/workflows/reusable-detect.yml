@@ -40,7 +40,7 @@ jobs:
       codeql_languages: ${{ steps.check.outputs.codeql_languages }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Detect present components
         id: check
