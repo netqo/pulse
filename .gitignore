@@ -1,0 +1,50 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/bin/
+/dist/
+vendor/
+go.work
+go.work.sum
+
+# sqlc / generated (keep generated code committed per project convention; ignore only local caches)
+*.tmp
+
+# Node / frontend
+node_modules/
+web/dist/
+web/build/
+.eslintcache
+*.local
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Docker / local data volumes
+/data/
+pgdata/
+redis-data/
+redpanda-data/
+
+# Observability local state
+grafana-data/
+prometheus-data/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
