@@ -1,6 +1,6 @@
-# Market Data Pipeline + SQL Playground
+# Pulse
 
-> A self-hosted market-data platform where the database is a first-class citizen: run raw SQL against the full history, watch a live dashboard without writing a line, and configure price alerts, all on top of a distributed backend with streaming replication and end-to-end observability.
+> **Market Data Pipeline + SQL Playground.** A self-hosted market-data platform where the database is a first-class citizen: run raw SQL against the full history, watch a live dashboard without writing a line, and configure price alerts, all on top of a distributed backend with streaming replication and end-to-end observability.
 
 <!-- Status and license -->
 ![Status](https://img.shields.io/badge/status-pre--release-orange)
