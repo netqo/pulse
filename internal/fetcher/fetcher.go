@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -34,6 +35,10 @@ type Fetcher struct {
 	producer Producer
 	logger   *slog.Logger
 	metrics  *metrics
+
+	// connected reflects whether the upstream WebSocket is currently live, read
+	// by the readiness probe from another goroutine.
+	connected atomic.Bool
 
 	dialTimeout time.Duration
 	minBackoff  time.Duration
@@ -85,6 +90,12 @@ func New(wsURL string, symbols []string, producer Producer, logger *slog.Logger,
 	}
 }
 
+// Ready reports whether the fetcher currently holds a live upstream connection.
+// It backs the readiness probe and is safe to call from any goroutine.
+func (f *Fetcher) Ready() bool {
+	return f.connected.Load()
+}
+
 // Run connects and streams until ctx is canceled, reconnecting with backoff.
 // It returns ctx.Err() on cancellation.
 func (f *Fetcher) Run(ctx context.Context) error {
@@ -99,15 +110,19 @@ func (f *Fetcher) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		streamErr := f.stream(ctx, endpoint)
-		f.metrics.connected.Set(0)
+		connected, streamErr := f.stream(ctx, endpoint)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
+		// A healthy connection that dropped should reconnect promptly; only a
+		// failure to establish a connection warrants exponential backoff.
 		f.metrics.reconnects.Inc()
+		if connected {
+			backoff = f.minBackoff
+		}
 		f.logger.Warn("stream disconnected; reconnecting",
-			"error", streamErr, "backoff", backoff.String())
+			"error", streamErr, "connected", connected, "backoff", backoff.String())
 
 		select {
 		case <-ctx.Done():
@@ -115,35 +130,56 @@ func (f *Fetcher) Run(ctx context.Context) error {
 		case <-time.After(backoff):
 		}
 
-		backoff *= 2
-		if backoff > f.maxBackoff {
-			backoff = f.maxBackoff
+		if !connected {
+			backoff = nextBackoff(backoff, f.maxBackoff)
 		}
 	}
 }
 
 // stream opens one WebSocket connection and reads until it errors or ctx ends.
-func (f *Fetcher) stream(ctx context.Context, endpoint string) error {
+// It reports whether a connection was successfully established, which the caller
+// uses to decide the backoff strategy.
+func (f *Fetcher) stream(ctx context.Context, endpoint string) (connected bool, err error) {
 	dialCtx, cancel := context.WithTimeout(ctx, f.dialTimeout)
 	defer cancel()
 
 	conn, _, err := websocket.Dial(dialCtx, endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("dial: %w", err)
+		return false, fmt.Errorf("dial: %w", err)
 	}
 	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(readLimit)
 
-	f.metrics.connected.Set(1)
+	f.setConnected(true)
+	defer f.setConnected(false)
 	f.logger.Info("connected to binance stream", "symbols", f.symbols)
 
 	for {
 		_, data, readErr := conn.Read(ctx)
 		if readErr != nil {
-			return fmt.Errorf("read: %w", readErr)
+			return true, fmt.Errorf("read: %w", readErr)
 		}
 		f.handleMessage(ctx, data)
 	}
+}
+
+// setConnected updates both the readiness flag and the connection gauge.
+func (f *Fetcher) setConnected(v bool) {
+	f.connected.Store(v)
+	if v {
+		f.metrics.connected.Set(1)
+	} else {
+		f.metrics.connected.Set(0)
+	}
+}
+
+// nextBackoff doubles current, capped at ceiling.
+func nextBackoff(current, ceiling time.Duration) time.Duration {
+	next := current * 2
+	if next > ceiling {
+		return ceiling
+	}
+	return next
 }
 
 // handleMessage normalizes one raw message and produces it. Non-trade messages
