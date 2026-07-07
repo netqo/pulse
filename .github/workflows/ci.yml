@@ -212,7 +212,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          results='${{ join(needs.*.result, ",") }}'
+          results='${{ join(needs.*.result, ',') }}'
           echo "Upstream job results: $results"
           IFS=',' read -ra arr <<< "$results"
           for r in "${arr[@]}"; do
