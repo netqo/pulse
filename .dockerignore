@@ -1,0 +1,18 @@
+# Keep the Docker build context lean and reproducible.
+.git
+.github
+bin
+coverage.out
+web/node_modules
+web/dist
+web/build
+*.md
+!go.mod
+!go.sum
+docker-compose.yml
+.env
+.env.*
+observability
+deploy
+patroni
+docs
