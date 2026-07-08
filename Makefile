@@ -41,6 +41,10 @@ vet: ## Run go vet.
 lint: ## Run golangci-lint (requires golangci-lint on PATH).
 	golangci-lint run
 
+.PHONY: sqlc
+sqlc: ## Regenerate the sqlc data-access code from the SQL queries.
+	sqlc generate
+
 .PHONY: test
 test: ## Run unit tests.
 	go test ./...

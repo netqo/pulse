@@ -1,0 +1,15 @@
+version: "2"
+sql:
+  - engine: postgresql
+    # Only the up migrations define the live schema; the down files drop it, so
+    # they are excluded from what sqlc reads as the catalog.
+    schema: "migrations/*.up.sql"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: sqlc
+        out: internal/db/sqlc
+        sql_package: pgx/v5
+        emit_interface: true
+        emit_empty_slices: true
+        emit_json_tags: false
