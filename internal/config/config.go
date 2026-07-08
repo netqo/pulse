@@ -83,6 +83,20 @@ func (c *Config) IsProduction() bool {
 	return c.Env == EnvProduction
 }
 
+// String returns the trimmed value of the environment variable named key, or
+// fallback when it is unset or blank. Service-specific configuration uses it to
+// read its own variables with the same semantics as the shared settings, so the
+// parsing rules stay defined in one place.
+func String(key, fallback string) string {
+	return getString(os.LookupEnv, key, fallback)
+}
+
+// CSV parses a comma-separated environment variable into a slice, trimming and
+// dropping empty entries, falling back to the parsed fallback when unset.
+func CSV(key, fallback string) []string {
+	return getCSV(os.LookupEnv, key, fallback)
+}
+
 // validate ensures every field holds a usable value, returning the first error.
 func (c *Config) validate() error {
 	switch c.Env {

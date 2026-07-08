@@ -66,6 +66,37 @@ func TestLoadOverrides(t *testing.T) {
 	}
 }
 
+func TestString(t *testing.T) {
+	t.Setenv("PULSE_TEST_STRING", "  hello  ")
+	if got := String("PULSE_TEST_STRING", "fallback"); got != "hello" {
+		t.Errorf("String(set) = %q, want hello", got)
+	}
+	if got := String("PULSE_TEST_STRING_MISSING", "fallback"); got != "fallback" {
+		t.Errorf("String(unset) = %q, want fallback", got)
+	}
+	t.Setenv("PULSE_TEST_STRING_BLANK", "   ")
+	if got := String("PULSE_TEST_STRING_BLANK", "fallback"); got != "fallback" {
+		t.Errorf("String(blank) = %q, want fallback", got)
+	}
+}
+
+func TestCSV(t *testing.T) {
+	t.Setenv("PULSE_TEST_CSV", " a , b ,, c ")
+	got := CSV("PULSE_TEST_CSV", "x")
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("CSV = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("CSV[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if got := CSV("PULSE_TEST_CSV_MISSING", "d,e"); len(got) != 2 {
+		t.Errorf("CSV(unset) = %v, want fallback parsed to 2 entries", got)
+	}
+}
+
 func TestLoadValidationErrors(t *testing.T) {
 	tests := map[string]map[string]string{
 		"invalid env":          {"APP_ENV": "prod"},
