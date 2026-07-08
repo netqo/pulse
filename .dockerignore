@@ -7,8 +7,6 @@ web/node_modules
 web/dist
 web/build
 *.md
-!go.mod
-!go.sum
 docker-compose.yml
 .env
 .env.*
