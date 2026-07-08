@@ -6,9 +6,19 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	// Deletes an instrument's price rows within the half-open range [from, to).
+	// Backs the historical seeder's idempotent per-window replace.
+	DeletePricesInRange(ctx context.Context, arg DeletePricesInRangeParams) (int64, error)
+	// Returns up to limit price values strictly before a timestamp for an
+	// instrument, most recent first. Warms the seeder's rolling window so the
+	// derived indicators stay continuous regardless of which range a run seeds.
+	// Backed by the (instrument_id, ts DESC) index.
+	GetClosesBefore(ctx context.Context, arg GetClosesBeforeParams) ([]pgtype.Numeric, error)
 	// Returns the full instrument row for a symbol, or no rows if it is unknown.
 	GetInstrumentBySymbol(ctx context.Context, symbol string) (Instrument, error)
 	// Returns the most recent price observation for an instrument. Backed by the

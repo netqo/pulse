@@ -11,6 +11,68 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deletePricesInRange = `-- name: DeletePricesInRange :execrows
+DELETE FROM prices
+WHERE instrument_id = $1
+  AND ts >= $2
+  AND ts < $3
+`
+
+type DeletePricesInRangeParams struct {
+	InstrumentID int64
+	FromTs       pgtype.Timestamptz
+	ToTs         pgtype.Timestamptz
+}
+
+// Deletes an instrument's price rows within the half-open range [from, to).
+// Backs the historical seeder's idempotent per-window replace.
+func (q *Queries) DeletePricesInRange(ctx context.Context, arg DeletePricesInRangeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePricesInRange, arg.InstrumentID, arg.FromTs, arg.ToTs)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getClosesBefore = `-- name: GetClosesBefore :many
+SELECT price
+FROM prices
+WHERE instrument_id = $1
+  AND ts < $2
+ORDER BY ts DESC
+LIMIT $3
+`
+
+type GetClosesBeforeParams struct {
+	InstrumentID int64
+	BeforeTs     pgtype.Timestamptz
+	RowLimit     int32
+}
+
+// Returns up to limit price values strictly before a timestamp for an
+// instrument, most recent first. Warms the seeder's rolling window so the
+// derived indicators stay continuous regardless of which range a run seeds.
+// Backed by the (instrument_id, ts DESC) index.
+func (q *Queries) GetClosesBefore(ctx context.Context, arg GetClosesBeforeParams) ([]pgtype.Numeric, error) {
+	rows, err := q.db.Query(ctx, getClosesBefore, arg.InstrumentID, arg.BeforeTs, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.Numeric{}
+	for rows.Next() {
+		var price pgtype.Numeric
+		if err := rows.Scan(&price); err != nil {
+			return nil, err
+		}
+		items = append(items, price)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getLatestPrice = `-- name: GetLatestPrice :one
 SELECT ts, price, volume, ma_20, volatility
 FROM prices

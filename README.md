@@ -117,6 +117,26 @@ make test
 make lint
 ```
 
+## Historical backfill
+
+The `seed` job backfills the `prices` table from the public
+[data.binance.vision](https://data.binance.vision) monthly kline archives. It
+downloads each month, verifies its SHA256 checksum, derives the same rolling
+indicators the processor computes live, and writes the enriched rows one month
+at a time. Re-running a month replaces it (a delete and bulk copy in a single
+transaction), and the rolling window is warmed from the closes already stored
+just before the range, so a re-run is fully idempotent: it reproduces the same
+rows and the same indicator values.
+
+```bash
+# Seed BTCUSDT and ETHUSDT for Q1 2024 into the running stack.
+docker compose run --rm seed -symbols BTCUSDT,ETHUSDT -from 2024-01 -to 2024-03
+```
+
+Use a consistent `-interval` for a given range: the `prices` table records
+observations, not candle granularity, so re-seeding a range with a different
+interval replaces its rows at the new resolution.
+
 ## HTTP API
 
 The `api` service exposes read-only endpoints over the enriched price data. The

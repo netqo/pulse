@@ -111,6 +111,17 @@ func TestInt(t *testing.T) {
 	}
 }
 
+func TestLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "debug")
+	if got := Level(); got != slog.LevelDebug {
+		t.Errorf("Level(debug) = %v, want debug", got)
+	}
+	t.Setenv("LOG_LEVEL", "bogus")
+	if got := Level(); got != slog.LevelInfo {
+		t.Errorf("Level(invalid) = %v, want info fallback", got)
+	}
+}
+
 func TestLoadValidationErrors(t *testing.T) {
 	tests := map[string]map[string]string{
 		"invalid env":          {"APP_ENV": "prod"},
