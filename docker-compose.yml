@@ -119,6 +119,29 @@ services:
     ports:
       - "${FETCHER_METRICS_PORT:-9101}:9101"
 
+  processor:
+    build:
+      context: .
+      dockerfile: cmd/processor/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-market.ticks}
+      BATCH_SIZE: ${BATCH_SIZE:-500}
+      METRICS_ADDR: ":9102"
+    ports:
+      - "${PROCESSOR_METRICS_PORT:-9102}:9102"
+
 volumes:
   pgdata:
   redisdata:
