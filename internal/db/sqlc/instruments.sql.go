@@ -9,6 +9,65 @@ import (
 	"context"
 )
 
+const getInstrumentBySymbol = `-- name: GetInstrumentBySymbol :one
+SELECT id, symbol, base_asset, quote_asset, source, is_active, created_at, updated_at
+FROM instruments
+WHERE symbol = $1
+`
+
+// Returns the full instrument row for a symbol, or no rows if it is unknown.
+func (q *Queries) GetInstrumentBySymbol(ctx context.Context, symbol string) (Instrument, error) {
+	row := q.db.QueryRow(ctx, getInstrumentBySymbol, symbol)
+	var i Instrument
+	err := row.Scan(
+		&i.ID,
+		&i.Symbol,
+		&i.BaseAsset,
+		&i.QuoteAsset,
+		&i.Source,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listInstruments = `-- name: ListInstruments :many
+SELECT id, symbol, base_asset, quote_asset, source, is_active, created_at, updated_at
+FROM instruments
+ORDER BY symbol
+`
+
+// Lists every instrument, ordered by symbol for a stable response.
+func (q *Queries) ListInstruments(ctx context.Context) ([]Instrument, error) {
+	rows, err := q.db.Query(ctx, listInstruments)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Instrument{}
+	for rows.Next() {
+		var i Instrument
+		if err := rows.Scan(
+			&i.ID,
+			&i.Symbol,
+			&i.BaseAsset,
+			&i.QuoteAsset,
+			&i.Source,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertInstrument = `-- name: UpsertInstrument :one
 INSERT INTO instruments (symbol, base_asset, quote_asset, source)
 VALUES ($1, $2, $3, $4)
