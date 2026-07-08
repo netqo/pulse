@@ -162,6 +162,23 @@ services:
       - "${API_PORT:-8081}:8080"
       - "${API_METRICS_PORT:-9103}:9103"
 
+  # One-shot historical backfill, gated behind the "seed" profile so it never
+  # starts with the default stack. Run it on demand, passing the range:
+  #   docker compose run --rm seed -symbols BTCUSDT,ETHUSDT -from 2024-01 -to 2024-03
+  seed:
+    build:
+      context: .
+      dockerfile: cmd/seed/Dockerfile
+    profiles: ["seed"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+
 volumes:
   pgdata:
   redisdata:
