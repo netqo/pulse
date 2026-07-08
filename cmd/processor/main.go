@@ -1,5 +1,6 @@
-// Command fetcher connects to Binance live trade streams and produces
-// normalized ticks to Kafka. It is the ingestion boundary of the pipeline.
+// Command processor consumes normalized ticks from Kafka, enriches them with
+// rolling indicators and persists the result into the partitioned prices table.
+// It is the analytics stage of the pipeline.
 package main
 
 import (
@@ -16,31 +17,31 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/netqo/pulse/internal/config"
-	"github.com/netqo/pulse/internal/fetcher"
+	"github.com/netqo/pulse/internal/db"
 	"github.com/netqo/pulse/internal/health"
 	"github.com/netqo/pulse/internal/kafka"
 	"github.com/netqo/pulse/internal/logging"
+	"github.com/netqo/pulse/internal/processor"
 	"github.com/netqo/pulse/internal/version"
 )
 
-// Fetcher-specific defaults, layered on top of the shared configuration.
+// Processor-specific defaults, layered on top of the shared configuration.
 const (
-	defaultBinanceWSURL = "wss://stream.binance.com:9443/stream"
-	defaultSymbols      = "BTCUSDT,ETHUSDT"
-	defaultMetricsAddr  = ":9101"
-	shutdownTimeout     = 5 * time.Second
+	consumerGroup      = "processor"
+	defaultMetricsAddr = ":9102"
+	defaultBatchSize   = 500
+	windowSize         = 20
+	shutdownTimeout    = 5 * time.Second
 )
 
 func main() {
-	// The "healthcheck" subcommand probes the local liveness endpoint and exits
-	// with a status code. It backs the container HEALTHCHECK, which cannot use a
-	// shell because the runtime image is distroless.
+	// The "healthcheck" subcommand backs the distroless container HEALTHCHECK.
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(health.Check(config.String("METRICS_ADDR", defaultMetricsAddr)))
 	}
 
 	if err := run(); err != nil {
-		slog.Error("fetcher exited with error", "error", err)
+		slog.Error("processor exited with error", "error", err)
 		os.Exit(1)
 	}
 }
@@ -52,33 +53,37 @@ func run() error {
 	}
 
 	logger := logging.New(cfg.LogLevel, cfg.IsProduction())
-	logger.Info("starting fetcher", "version", version.String())
-
-	producer, err := kafka.NewProducer(cfg.KafkaBrokers, cfg.KafkaTopic)
-	if err != nil {
-		return err
-	}
-	defer producer.Close()
-
-	reg := prometheus.NewRegistry()
-	f := fetcher.New(
-		config.String("BINANCE_WS_URL", defaultBinanceWSURL),
-		config.CSV("SYMBOLS", defaultSymbols),
-		producer,
-		logger,
-		reg,
-	)
+	logger.Info("starting processor", "version", version.String())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// The fetcher is ready when it holds a live upstream connection and its
-	// Kafka producer can reach the brokers.
+	database, err := db.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	consumer, err := kafka.NewConsumer(
+		cfg.KafkaBrokers,
+		consumerGroup,
+		cfg.KafkaTopic,
+		config.Int("BATCH_SIZE", defaultBatchSize),
+	)
+	if err != nil {
+		return err
+	}
+	defer consumer.Close()
+
+	reg := prometheus.NewRegistry()
+	proc := processor.New(database, database, logger, reg, windowSize)
+
+	// The processor is ready when it can reach both PostgreSQL and Kafka.
 	ready := func(ctx context.Context) error {
-		if !f.Ready() {
-			return errors.New("upstream stream not connected")
+		if err := database.Ping(ctx); err != nil {
+			return err
 		}
-		return producer.Ping(ctx)
+		return consumer.Ping(ctx)
 	}
 
 	srv := &http.Server{
@@ -93,7 +98,7 @@ func run() error {
 		}
 	}()
 
-	runErr := f.Run(ctx)
+	runErr := proc.Run(ctx, consumer)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -104,6 +109,6 @@ func run() error {
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
 		return runErr
 	}
-	logger.Info("fetcher stopped")
+	logger.Info("processor stopped")
 	return nil
 }

@@ -97,6 +97,20 @@ func TestCSV(t *testing.T) {
 	}
 }
 
+func TestInt(t *testing.T) {
+	t.Setenv("PULSE_TEST_INT", "  42  ")
+	if got := Int("PULSE_TEST_INT", 7); got != 42 {
+		t.Errorf("Int(set) = %d, want 42", got)
+	}
+	if got := Int("PULSE_TEST_INT_MISSING", 7); got != 7 {
+		t.Errorf("Int(unset) = %d, want fallback 7", got)
+	}
+	t.Setenv("PULSE_TEST_INT_BAD", "not-a-number")
+	if got := Int("PULSE_TEST_INT_BAD", 7); got != 7 {
+		t.Errorf("Int(malformed) = %d, want fallback 7", got)
+	}
+}
+
 func TestLoadValidationErrors(t *testing.T) {
 	tests := map[string]map[string]string{
 		"invalid env":          {"APP_ENV": "prod"},
