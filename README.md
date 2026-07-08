@@ -117,6 +117,27 @@ make test
 make lint
 ```
 
+## HTTP API
+
+The `api` service exposes read-only endpoints over the enriched price data. The
+public API listens on `:8080` (mapped to host `:8081` by default); health and
+Prometheus metrics live on a separate internal listener at `:9103`.
+
+| Method and path | Description |
+| --- | --- |
+| `GET /api/v1/instruments` | List every tracked instrument. |
+| `GET /api/v1/instruments/{symbol}/latest` | Most recent price observation for a symbol. |
+| `GET /api/v1/instruments/{symbol}/prices?from=&to=&limit=` | Historical series in the half-open range `[from, to)`, returned oldest first. `from`/`to` are RFC3339 (default: the last 24h); `limit` defaults to 1000 and is capped at 5000. When more observations exist than `limit`, the most recent ones in the range are returned. |
+
+Symbols are case-insensitive. Monetary values are returned as decimal strings to
+preserve exact precision. Unknown symbols return `404`; invalid query parameters
+return `400`.
+
+```bash
+curl -s localhost:8081/api/v1/instruments/BTCUSDT/latest
+curl -s "localhost:8081/api/v1/instruments/BTCUSDT/prices?from=2025-06-01T00:00:00Z&to=2025-06-02T00:00:00Z&limit=500"
+```
+
 ## Roadmap
 
 Development proceeds in independently demonstrable phases, each with an explicit "done" checkpoint:

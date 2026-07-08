@@ -142,6 +142,26 @@ services:
     ports:
       - "${PROCESSOR_METRICS_PORT:-9102}:9102"
 
+  api:
+    build:
+      context: .
+      dockerfile: cmd/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+      API_ADDR: ":8080"
+      METRICS_ADDR: ":9103"
+    ports:
+      - "${API_PORT:-8081}:8080"
+      - "${API_METRICS_PORT:-9103}:9103"
+
 volumes:
   pgdata:
   redisdata:
