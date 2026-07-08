@@ -119,7 +119,7 @@ func New(instrument InstrumentStore, writer PriceWriter, logger *slog.Logger, re
 	}
 }
 
-// Run consumes and processes batches until ctx is cancelled or the consumer is
+// Run consumes and processes batches until ctx is canceled or the consumer is
 // closed, returning ctx.Err() on cancellation and nil on a clean shutdown.
 func (p *Processor) Run(ctx context.Context, consumer Consumer) error {
 	for {
@@ -155,7 +155,7 @@ func (p *Processor) Run(ctx context.Context, consumer Consumer) error {
 
 // processBatch enriches every value into a price row, persists the batch and
 // then commits the consumed offsets. It returns an error only when ctx is
-// cancelled mid-write; malformed records are skipped, not fatal.
+// canceled mid-write; malformed records are skipped, not fatal.
 func (p *Processor) processBatch(ctx context.Context, consumer Consumer, values [][]byte) error {
 	rows := make([]db.PriceRow, 0, len(values))
 	for _, value := range values {
@@ -188,7 +188,7 @@ func (p *Processor) processBatch(ctx context.Context, consumer Consumer, values 
 
 // write persists rows, retrying with capped exponential backoff while the store
 // is unavailable so no batch is dropped. It returns an error only if ctx is
-// cancelled while waiting to retry.
+// canceled while waiting to retry.
 //
 // Retries are unbounded by design: the expected failure is a transient database
 // outage, which recovers. A genuinely poisonous batch (one that can never be

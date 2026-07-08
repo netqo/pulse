@@ -9,7 +9,7 @@ import (
 )
 
 // ErrClosed is returned by Poll once the underlying client has been closed,
-// signalling the consume loop to stop.
+// signaling the consume loop to stop.
 var ErrClosed = errors.New("kafka: consumer closed")
 
 // Consumer reads records from a single topic as part of a consumer group with
