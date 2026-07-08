@@ -17,6 +17,7 @@ import (
 
 	"github.com/netqo/pulse/internal/db"
 	"github.com/netqo/pulse/internal/domain"
+	"github.com/netqo/pulse/internal/indicators"
 	"github.com/netqo/pulse/internal/kafka"
 )
 
@@ -55,7 +56,7 @@ type Processor struct {
 	metrics    *metrics
 
 	windowSize    int
-	windows       map[string]*window
+	windows       map[string]*indicators.Window
 	instrumentIDs map[string]int64
 }
 
@@ -114,7 +115,7 @@ func New(instrument InstrumentStore, writer PriceWriter, logger *slog.Logger, re
 		logger:        logger,
 		metrics:       newMetrics(reg),
 		windowSize:    windowSize,
-		windows:       make(map[string]*window),
+		windows:       make(map[string]*indicators.Window),
 		instrumentIDs: make(map[string]int64),
 	}
 }
@@ -240,7 +241,7 @@ func (p *Processor) enrich(ctx context.Context, value []byte) (db.PriceRow, erro
 	}
 
 	w := p.windowFor(tick.Symbol)
-	w.add(price)
+	w.Add(price)
 
 	row := db.PriceRow{
 		InstrumentID: id,
@@ -251,10 +252,10 @@ func (p *Processor) enrich(ctx context.Context, value []byte) (db.PriceRow, erro
 		volume := tick.Quantity
 		row.Volume = &volume
 	}
-	if ma, ok := w.mean(); ok {
+	if ma, ok := w.Mean(); ok {
 		row.MA20 = &ma
 	}
-	if vol, ok := w.volatility(); ok {
+	if vol, ok := w.Volatility(); ok {
 		row.Volatility = &vol
 	}
 	return row, nil
@@ -276,10 +277,10 @@ func (p *Processor) instrumentID(ctx context.Context, symbol string) (int64, err
 }
 
 // windowFor returns the sliding window for symbol, creating it on first use.
-func (p *Processor) windowFor(symbol string) *window {
+func (p *Processor) windowFor(symbol string) *indicators.Window {
 	w, ok := p.windows[symbol]
 	if !ok {
-		w = newWindow(p.windowSize)
+		w = indicators.NewWindow(p.windowSize)
 		p.windows[symbol] = w
 	}
 	return w

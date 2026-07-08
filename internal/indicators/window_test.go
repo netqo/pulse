@@ -1,4 +1,4 @@
-package processor
+package indicators
 
 import (
 	"math"
@@ -6,25 +6,25 @@ import (
 )
 
 func TestWindowNotFull(t *testing.T) {
-	w := newWindow(3)
-	w.add(10)
-	w.add(20)
+	w := NewWindow(3)
+	w.Add(10)
+	w.Add(20)
 
-	if _, ok := w.mean(); ok {
+	if _, ok := w.Mean(); ok {
 		t.Error("mean should be undefined before the window fills")
 	}
-	if _, ok := w.volatility(); ok {
+	if _, ok := w.Volatility(); ok {
 		t.Error("volatility should be undefined before the window fills")
 	}
 }
 
 func TestWindowMeanAndVolatility(t *testing.T) {
-	w := newWindow(4)
+	w := NewWindow(4)
 	for _, v := range []float64{2, 4, 4, 6} {
-		w.add(v)
+		w.Add(v)
 	}
 
-	mean, ok := w.mean()
+	mean, ok := w.Mean()
 	if !ok {
 		t.Fatal("mean should be defined once the window is full")
 	}
@@ -32,7 +32,7 @@ func TestWindowMeanAndVolatility(t *testing.T) {
 		t.Errorf("mean = %v, want 4", mean)
 	}
 
-	vol, ok := w.volatility()
+	vol, ok := w.Volatility()
 	if !ok {
 		t.Fatal("volatility should be defined once the window is full")
 	}
@@ -44,17 +44,26 @@ func TestWindowMeanAndVolatility(t *testing.T) {
 }
 
 func TestWindowSlides(t *testing.T) {
-	w := newWindow(3)
+	w := NewWindow(3)
 	for _, v := range []float64{1, 2, 3, 4, 5} {
-		w.add(v)
+		w.Add(v)
 	}
 
 	// The window now holds the last three prices {3,4,5}; mean = 4.
-	mean, ok := w.mean()
+	mean, ok := w.Mean()
 	if !ok {
 		t.Fatal("mean should be defined")
 	}
 	if mean != 4 {
 		t.Errorf("mean after sliding = %v, want 4 (last three of 1..5)", mean)
 	}
+}
+
+func TestNewWindowRejectsTinySize(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("NewWindow should panic when size < 2")
+		}
+	}()
+	NewWindow(1)
 }
