@@ -5,10 +5,10 @@ package main
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +34,13 @@ const (
 )
 
 func main() {
+	// The "healthcheck" subcommand probes the local liveness endpoint and exits
+	// with a status code. It backs the container HEALTHCHECK, which cannot use a
+	// shell because the runtime image is distroless.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
+	}
+
 	if err := run(); err != nil {
 		slog.Error("fetcher exited with error", "error", err)
 		os.Exit(1)
@@ -57,8 +64,8 @@ func run() error {
 
 	reg := prometheus.NewRegistry()
 	f := fetcher.New(
-		getenv("BINANCE_WS_URL", defaultBinanceWSURL),
-		splitCSV(getenv("SYMBOLS", defaultSymbols)),
+		config.String("BINANCE_WS_URL", defaultBinanceWSURL),
+		config.CSV("SYMBOLS", defaultSymbols),
 		producer,
 		logger,
 		reg,
@@ -77,7 +84,7 @@ func run() error {
 	}
 
 	srv := &http.Server{
-		Addr:              getenv("METRICS_ADDR", defaultMetricsAddr),
+		Addr:              config.String("METRICS_ADDR", defaultMetricsAddr),
 		Handler:           newHandler(reg, ready),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -130,24 +137,45 @@ func writeOK(w http.ResponseWriter) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-// getenv returns the value of key or fallback when unset or blank.
-func getenv(key, fallback string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		if trimmed := strings.TrimSpace(v); trimmed != "" {
-			return trimmed
-		}
+// healthcheck probes the local liveness endpoint and returns a process exit
+// code (0 healthy, 1 unhealthy).
+func healthcheck() int {
+	url, err := healthURL(config.String("METRICS_ADDR", defaultMetricsAddr))
+	if err != nil {
+		return 1
 	}
-	return fallback
+
+	ctx, cancel := context.WithTimeout(context.Background(), readyTimeout)
+	defer cancel()
+	return probe(ctx, url)
 }
 
-// splitCSV parses a comma-separated list, trimming and dropping empty entries.
-func splitCSV(raw string) []string {
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if trimmed := strings.TrimSpace(p); trimmed != "" {
-			out = append(out, trimmed)
-		}
+// probe issues a GET and returns 0 only on a 200 OK response.
+func probe(ctx context.Context, url string) int {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return 1
 	}
-	return out
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 1
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
+}
+
+// healthURL derives the liveness URL to probe from a listen address such as
+// ":9101" or "0.0.0.0:9101", targeting the loopback interface.
+func healthURL(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/healthz", nil
 }

@@ -25,4 +25,8 @@ FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=build /out/fetcher /usr/local/bin/fetcher
 EXPOSE 9101
 USER nonroot:nonroot
+# The image is distroless (no shell), so the health check runs the binary's own
+# "healthcheck" subcommand, which probes the local /healthz endpoint.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+    CMD ["/usr/local/bin/fetcher", "healthcheck"]
 ENTRYPOINT ["/usr/local/bin/fetcher"]
