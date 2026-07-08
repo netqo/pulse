@@ -166,6 +166,15 @@ func (s *Sandbox) Execute(ctx context.Context, query string) (*Result, error) {
 	return result, nil
 }
 
+// Validate reports whether query is an acceptable Playground statement:
+// non-empty and read-only. It applies the same rule the sandbox enforces before
+// execution, so a query rejected here would never run. It returns ErrEmptyQuery
+// or ErrNotReadOnly on failure, and nil when the query is acceptable.
+func Validate(query string) error {
+	_, err := sanitize(query)
+	return err
+}
+
 // sanitize trims the statement, strips a trailing semicolon and requires a
 // read-only leading keyword.
 func sanitize(query string) (string, error) {

@@ -80,7 +80,7 @@ func run() error {
 
 	reg := prometheus.NewRegistry()
 	sandbox := playground.New(sandboxPool)
-	server := api.New(database, sandbox, logger, reg)
+	server := api.New(database, sandbox, database, logger, reg)
 
 	ready := func(ctx context.Context) error { return database.Ping(ctx) }
 

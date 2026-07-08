@@ -38,3 +38,12 @@ type PricesDefault struct {
 	Volatility   pgtype.Numeric
 	IngestedAt   pgtype.Timestamptz
 }
+
+// Shareable Playground queries, addressed by a non-enumerable UUID.
+type SavedQuery struct {
+	ID          pgtype.UUID
+	Title       pgtype.Text
+	SqlText     string
+	ChartConfig []byte
+	CreatedAt   pgtype.Timestamptz
+}
