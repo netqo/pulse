@@ -214,6 +214,16 @@ func TestReadPathIntegration(t *testing.T) {
 		t.Errorf("limited series = %+v, want single most-recent row (102)", limited)
 	}
 
+	// ClosesBefore warms an indicator window: strictly-earlier closes, oldest
+	// first, capped at the limit.
+	closes, err := d.ClosesBefore(ctx, btc, t0.Add(2*time.Minute), 5)
+	if err != nil {
+		t.Fatalf("ClosesBefore: %v", err)
+	}
+	if len(closes) != 2 || closes[0] != 100 || closes[1] != 101 {
+		t.Errorf("ClosesBefore = %v, want [100 101] (oldest first, excludes t0+2m)", closes)
+	}
+
 	// Unknown symbols yield ErrNotFound; a known symbol with no data in range
 	// yields an empty slice, not an error.
 	if _, err := d.LatestPrice(ctx, "NOPE"); !errors.Is(err, ErrNotFound) {
@@ -225,6 +235,78 @@ func TestReadPathIntegration(t *testing.T) {
 	empty, err := d.PriceSeries(ctx, "ETHUSDT", t0.Add(time.Hour), t0.Add(2*time.Hour), 10)
 	if err != nil || len(empty) != 0 {
 		t.Errorf("PriceSeries(no data) = (%v, %v), want (empty, nil)", empty, err)
+	}
+}
+
+// TestReplacePricesInRangeIntegration verifies the transactional range replace
+// is idempotent and scoped: it clears only the target range and leaves rows
+// outside it untouched. Skipped unless DATABASE_URL is set.
+func TestReplacePricesInRangeIntegration(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL not set; skipping database integration test")
+	}
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	applySchema(ctx, t, pool)
+
+	d, err := New(ctx, url)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer d.Close()
+
+	id, err := d.UpsertInstrument(ctx, "BTCUSDT")
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	monthStart := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)
+
+	// A row in the prior month must survive replacements of June.
+	outside := time.Date(2024, 5, 15, 0, 0, 0, 0, time.UTC)
+	if _, err := d.InsertPrices(ctx, []PriceRow{{InstrumentID: id, Ts: outside, Price: "1.00000000"}}); err != nil {
+		t.Fatalf("insert outside row: %v", err)
+	}
+
+	// First seed of June: two rows.
+	n1, err := d.ReplacePricesInRange(ctx, id, monthStart, monthEnd, []PriceRow{
+		{InstrumentID: id, Ts: time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC), Price: "100"},
+		{InstrumentID: id, Ts: time.Date(2024, 6, 20, 0, 0, 0, 0, time.UTC), Price: "200"},
+	})
+	if err != nil || n1 != 2 {
+		t.Fatalf("first replace = (%d, %v), want (2, nil)", n1, err)
+	}
+
+	// Re-seed June with a single different row: it replaces, not appends.
+	n2, err := d.ReplacePricesInRange(ctx, id, monthStart, monthEnd, []PriceRow{
+		{InstrumentID: id, Ts: time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC), Price: "150"},
+	})
+	if err != nil || n2 != 1 {
+		t.Fatalf("second replace = (%d, %v), want (1, nil)", n2, err)
+	}
+
+	june, err := d.PriceSeries(ctx, "BTCUSDT", monthStart, monthEnd, 100)
+	if err != nil {
+		t.Fatalf("PriceSeries June: %v", err)
+	}
+	if len(june) != 1 || june[0].Price != "150.00000000" {
+		t.Errorf("June after re-seed = %+v, want single row 150.00000000", june)
+	}
+
+	// The prior-month row is still present.
+	all, err := d.PriceSeries(ctx, "BTCUSDT", time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC), monthEnd, 100)
+	if err != nil {
+		t.Fatalf("PriceSeries all: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("total rows = %d, want 2 (outside row survived the replace)", len(all))
 	}
 }
 

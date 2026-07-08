@@ -86,15 +86,66 @@ type PriceRow struct {
 // InsertPrices bulk-loads rows into the partitioned prices table via the COPY
 // protocol, returning the number of rows inserted.
 func (d *DB) InsertPrices(ctx context.Context, rows []PriceRow) (int64, error) {
+	params, err := priceRowsToParams(rows)
+	if err != nil {
+		return 0, err
+	}
+	n, err := d.queries.InsertPrices(ctx, params)
+	if err != nil {
+		return 0, fmt.Errorf("db: insert prices: %w", err)
+	}
+	return n, nil
+}
+
+// ReplacePricesInRange atomically deletes an instrument's rows in the half-open
+// range [from, to) and inserts rows in their place, returning the number
+// inserted. It makes re-seeding a time window idempotent: the delete and the
+// bulk copy run in a single transaction, so a failure leaves the range
+// untouched.
+func (d *DB) ReplacePricesInRange(ctx context.Context, instrumentID int64, from, to time.Time, rows []PriceRow) (int64, error) {
+	params, err := priceRowsToParams(rows)
+	if err != nil {
+		return 0, err
+	}
+
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("db: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	q := d.queries.WithTx(tx)
+	if _, err := q.DeletePricesInRange(ctx, sqlc.DeletePricesInRangeParams{
+		InstrumentID: instrumentID,
+		FromTs:       pgtype.Timestamptz{Time: from.UTC(), Valid: true},
+		ToTs:         pgtype.Timestamptz{Time: to.UTC(), Valid: true},
+	}); err != nil {
+		return 0, fmt.Errorf("db: delete prices in range: %w", err)
+	}
+
+	n, err := q.InsertPrices(ctx, params)
+	if err != nil {
+		return 0, fmt.Errorf("db: insert prices: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("db: commit: %w", err)
+	}
+	return n, nil
+}
+
+// priceRowsToParams converts domain price rows into the pgx wire parameters the
+// COPY insert expects, validating the decimal fields.
+func priceRowsToParams(rows []PriceRow) ([]sqlc.InsertPricesParams, error) {
 	params := make([]sqlc.InsertPricesParams, 0, len(rows))
 	for i, r := range rows {
 		price, err := decimalNumeric(r.Price)
 		if err != nil {
-			return 0, fmt.Errorf("db: row %d price %q: %w", i, r.Price, err)
+			return nil, fmt.Errorf("db: row %d price %q: %w", i, r.Price, err)
 		}
 		volume, err := optDecimalNumeric(r.Volume)
 		if err != nil {
-			return 0, fmt.Errorf("db: row %d volume: %w", i, err)
+			return nil, fmt.Errorf("db: row %d volume: %w", i, err)
 		}
 		params = append(params, sqlc.InsertPricesParams{
 			InstrumentID: r.InstrumentID,
@@ -105,12 +156,7 @@ func (d *DB) InsertPrices(ctx context.Context, rows []PriceRow) (int64, error) {
 			Volatility:   floatNumeric(r.Volatility),
 		})
 	}
-
-	n, err := d.queries.InsertPrices(ctx, params)
-	if err != nil {
-		return 0, fmt.Errorf("db: insert prices: %w", err)
-	}
-	return n, nil
+	return params, nil
 }
 
 // Instrument is reference data for a tradable symbol, as returned to read
@@ -203,6 +249,40 @@ func (d *DB) PriceSeries(ctx context.Context, symbol string, from, to time.Time,
 		points = append(points, p)
 	}
 	return points, nil
+}
+
+// ClosesBefore returns up to limit price values immediately preceding before
+// for instrumentID, ordered oldest first, for warming a rolling indicator
+// window. It returns an empty slice when limit is non-positive or no prior data
+// exists.
+func (d *DB) ClosesBefore(ctx context.Context, instrumentID int64, before time.Time, limit int) ([]float64, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := d.queries.GetClosesBefore(ctx, sqlc.GetClosesBeforeParams{
+		InstrumentID: instrumentID,
+		BeforeTs:     pgtype.Timestamptz{Time: before.UTC(), Valid: true},
+		RowLimit:     int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("db: closes before: %w", err)
+	}
+
+	// The query yields newest first; reverse to oldest first so the caller can
+	// replay them into a window in chronological order.
+	out := make([]float64, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- {
+		s, ok := numericToString(rows[i])
+		if !ok {
+			continue
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return nil, fmt.Errorf("db: parse close %q: %w", s, err)
+		}
+		out = append(out, f)
+	}
+	return out, nil
 }
 
 // instrumentIDBySymbol resolves a symbol to its instrument id, translating a

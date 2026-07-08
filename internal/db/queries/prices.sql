@@ -4,6 +4,26 @@
 INSERT INTO prices (instrument_id, ts, price, volume, ma_20, volatility)
 VALUES ($1, $2, $3, $4, $5, $6);
 
+-- name: GetClosesBefore :many
+-- Returns up to limit price values strictly before a timestamp for an
+-- instrument, most recent first. Warms the seeder's rolling window so the
+-- derived indicators stay continuous regardless of which range a run seeds.
+-- Backed by the (instrument_id, ts DESC) index.
+SELECT price
+FROM prices
+WHERE instrument_id = $1
+  AND ts < sqlc.arg(before_ts)
+ORDER BY ts DESC
+LIMIT sqlc.arg(row_limit);
+
+-- name: DeletePricesInRange :execrows
+-- Deletes an instrument's price rows within the half-open range [from, to).
+-- Backs the historical seeder's idempotent per-window replace.
+DELETE FROM prices
+WHERE instrument_id = $1
+  AND ts >= sqlc.arg(from_ts)
+  AND ts < sqlc.arg(to_ts);
+
 -- name: GetLatestPrice :one
 -- Returns the most recent price observation for an instrument. Backed by the
 -- (instrument_id, ts DESC) index, which is walked backwards without a sort.
