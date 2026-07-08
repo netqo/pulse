@@ -6,8 +6,106 @@
 package sqlc
 
 import (
+	"context"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const getLatestPrice = `-- name: GetLatestPrice :one
+SELECT ts, price, volume, ma_20, volatility
+FROM prices
+WHERE instrument_id = $1
+ORDER BY ts DESC
+LIMIT 1
+`
+
+type GetLatestPriceRow struct {
+	Ts         pgtype.Timestamptz
+	Price      pgtype.Numeric
+	Volume     pgtype.Numeric
+	Ma20       pgtype.Numeric
+	Volatility pgtype.Numeric
+}
+
+// Returns the most recent price observation for an instrument. Backed by the
+// (instrument_id, ts DESC) index, which is walked backwards without a sort.
+func (q *Queries) GetLatestPrice(ctx context.Context, instrumentID int64) (GetLatestPriceRow, error) {
+	row := q.db.QueryRow(ctx, getLatestPrice, instrumentID)
+	var i GetLatestPriceRow
+	err := row.Scan(
+		&i.Ts,
+		&i.Price,
+		&i.Volume,
+		&i.Ma20,
+		&i.Volatility,
+	)
+	return i, err
+}
+
+const getPriceSeries = `-- name: GetPriceSeries :many
+SELECT ts, price, volume, ma_20, volatility
+FROM (
+    SELECT ts, price, volume, ma_20, volatility
+    FROM prices
+    WHERE instrument_id = $1
+      AND ts >= $2
+      AND ts < $3
+    ORDER BY ts DESC
+    LIMIT $4
+) recent
+ORDER BY ts
+`
+
+type GetPriceSeriesParams struct {
+	InstrumentID int64
+	FromTs       pgtype.Timestamptz
+	ToTs         pgtype.Timestamptz
+	RowLimit     int32
+}
+
+type GetPriceSeriesRow struct {
+	Ts         pgtype.Timestamptz
+	Price      pgtype.Numeric
+	Volume     pgtype.Numeric
+	Ma20       pgtype.Numeric
+	Volatility pgtype.Numeric
+}
+
+// Returns an instrument's price observations within the half-open range
+// [from, to), returned oldest first. When more rows exist than the caller's
+// limit, the most RECENT ones are kept (the inner query walks the
+// (instrument_id, ts DESC) index backwards and takes the newest limit rows),
+// then the outer query re-sorts them ascending for the response.
+func (q *Queries) GetPriceSeries(ctx context.Context, arg GetPriceSeriesParams) ([]GetPriceSeriesRow, error) {
+	rows, err := q.db.Query(ctx, getPriceSeries,
+		arg.InstrumentID,
+		arg.FromTs,
+		arg.ToTs,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetPriceSeriesRow{}
+	for rows.Next() {
+		var i GetPriceSeriesRow
+		if err := rows.Scan(
+			&i.Ts,
+			&i.Price,
+			&i.Volume,
+			&i.Ma20,
+			&i.Volatility,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 type InsertPricesParams struct {
 	InstrumentID int64

@@ -9,9 +9,22 @@ import (
 )
 
 type Querier interface {
+	// Returns the full instrument row for a symbol, or no rows if it is unknown.
+	GetInstrumentBySymbol(ctx context.Context, symbol string) (Instrument, error)
+	// Returns the most recent price observation for an instrument. Backed by the
+	// (instrument_id, ts DESC) index, which is walked backwards without a sort.
+	GetLatestPrice(ctx context.Context, instrumentID int64) (GetLatestPriceRow, error)
+	// Returns an instrument's price observations within the half-open range
+	// [from, to), returned oldest first. When more rows exist than the caller's
+	// limit, the most RECENT ones are kept (the inner query walks the
+	// (instrument_id, ts DESC) index backwards and takes the newest limit rows),
+	// then the outer query re-sorts them ascending for the response.
+	GetPriceSeries(ctx context.Context, arg GetPriceSeriesParams) ([]GetPriceSeriesRow, error)
 	// Bulk-inserts enriched price rows using the COPY protocol, the fastest path
 	// into the partitioned prices table.
 	InsertPrices(ctx context.Context, arg []InsertPricesParams) (int64, error)
+	// Lists every instrument, ordered by symbol for a stable response.
+	ListInstruments(ctx context.Context) ([]Instrument, error)
 	// Inserts an instrument or returns the existing one's id, keyed by symbol.
 	UpsertInstrument(ctx context.Context, arg UpsertInstrumentParams) (int64, error)
 }
