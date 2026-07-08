@@ -158,6 +158,48 @@ curl -s localhost:8081/api/v1/instruments/BTCUSDT/latest
 curl -s "localhost:8081/api/v1/instruments/BTCUSDT/prices?from=2025-06-01T00:00:00Z&to=2025-06-02T00:00:00Z&limit=500"
 ```
 
+### SQL Playground
+
+`POST /api/v1/playground/query` executes read-only SQL and returns the columns
+and rows as JSON (numeric and timestamp values as strings to preserve precision).
+
+```bash
+curl -s localhost:8081/api/v1/playground/query \
+  -H 'content-type: application/json' \
+  -d '{"query":"SELECT symbol, base_asset FROM instruments ORDER BY symbol LIMIT 5"}'
+```
+
+Because it runs arbitrary user SQL, the endpoint is sandboxed in independent
+layers, so no single failure exposes the database:
+
+- **Dedicated, bounded pool.** The Playground has its own connection pool with a
+  small `MaxConns`, isolated from the pool serving the rest of the API, so a
+  burst of slow queries can neither exhaust nor poison the shared connections.
+- **Least-privilege role.** The query runs as `playground_readonly` (assumed via
+  `SET LOCAL ROLE`), which holds `SELECT` on a whitelist of tables and nothing
+  else -- no DDL, no DML, no access to any other object. Table and function
+  privileges are checked at plan time as this role, so a query that tries to
+  escalate its role mid-execution still cannot read a non-whitelisted object.
+- **Read-only transaction.** `BEGIN READ ONLY` rejects every write, including
+  data-modifying CTEs, regardless of the role's grants.
+- **Statement timeout.** A per-transaction `statement_timeout` cancels a runaway
+  query.
+- **Connection reset.** Each connection is reset (`DISCARD ALL`) after every
+  query, so session-scoped state (advisory locks, prepared statements, temp
+  objects) cannot leak into the next execution.
+- **Row and byte caps.** The query is wrapped in a bounded subquery, capping the
+  rows returned (and turning any multi-statement input into a syntax error), plus
+  a hard cap on the bytes streamed back.
+- **Per-IP rate limiting.** The endpoint is throttled per client IP (by the
+  connection's remote address, not a spoofable `X-Forwarded-For` header).
+
+A static pre-check rejects obviously non-read statements early for a clearer
+error, but the transaction and role are the real enforcement. Invalid or rejected
+queries return `400` with the PostgreSQL error. These layers are defense in
+depth: each is independent, so exposing the endpoint does not rest on any single
+control. (Replica-only routing is added in the replication phase, which removes
+even read load from the primary.)
+
 ## Roadmap
 
 Development proceeds in independently demonstrable phases, each with an explicit "done" checkpoint:

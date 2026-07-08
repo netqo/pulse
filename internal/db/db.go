@@ -32,7 +32,32 @@ type DB struct {
 
 // New opens a connection pool to databaseURL and verifies connectivity.
 func New(ctx context.Context, databaseURL string) (*DB, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, err := openPool(ctx, databaseURL, 0)
+	if err != nil {
+		return nil, err
+	}
+	return &DB{pool: pool, queries: sqlc.New(pool)}, nil
+}
+
+// NewPool opens a standalone connection pool to databaseURL, capping concurrency
+// at maxConns. The Playground sandbox uses its own bounded pool so untrusted SQL
+// cannot exhaust or poison the connections that serve the rest of the API. The
+// caller owns the returned pool and must Close it.
+func NewPool(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool.Pool, error) {
+	return openPool(ctx, databaseURL, maxConns)
+}
+
+// openPool builds and verifies a pgx pool. A positive maxConns caps the pool;
+// zero leaves the pgx default in place.
+func openPool(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("db: parse config: %w", err)
+	}
+	if maxConns > 0 {
+		cfg.MaxConns = maxConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("db: create pool: %w", err)
 	}
@@ -40,7 +65,7 @@ func New(ctx context.Context, databaseURL string) (*DB, error) {
 		pool.Close()
 		return nil, fmt.Errorf("db: ping: %w", err)
 	}
-	return &DB{pool: pool, queries: sqlc.New(pool)}, nil
+	return pool, nil
 }
 
 // Ping verifies connectivity to the database.

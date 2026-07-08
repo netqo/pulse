@@ -23,6 +23,7 @@ import (
 	"github.com/netqo/pulse/internal/db"
 	"github.com/netqo/pulse/internal/health"
 	"github.com/netqo/pulse/internal/logging"
+	"github.com/netqo/pulse/internal/playground"
 	"github.com/netqo/pulse/internal/version"
 )
 
@@ -32,6 +33,10 @@ const (
 	defaultMetricsAddr = ":9103"
 	readHeaderTimeout  = 5 * time.Second
 	shutdownTimeout    = 5 * time.Second
+	// sandboxMaxConns bounds the Playground's dedicated pool so untrusted SQL
+	// (e.g. a burst of pg_sleep) cannot starve the connections serving the rest
+	// of the API.
+	sandboxMaxConns = 4
 )
 
 func main() {
@@ -65,8 +70,17 @@ func run() error {
 	}
 	defer database.Close()
 
+	// The Playground runs untrusted SQL on its own bounded pool, isolated from
+	// the pool serving the rest of the API.
+	sandboxPool, err := db.NewPool(ctx, cfg.DatabaseURL, sandboxMaxConns)
+	if err != nil {
+		return err
+	}
+	defer sandboxPool.Close()
+
 	reg := prometheus.NewRegistry()
-	server := api.New(database, logger, reg)
+	sandbox := playground.New(sandboxPool)
+	server := api.New(database, sandbox, logger, reg)
 
 	ready := func(ctx context.Context) error { return database.Ping(ctx) }
 

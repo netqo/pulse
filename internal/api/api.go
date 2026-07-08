@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/time/rate"
 
 	"github.com/netqo/pulse/internal/db"
+	"github.com/netqo/pulse/internal/playground"
 )
 
 // Reader is the read-side data access the API depends on. *db.DB satisfies it;
@@ -23,6 +25,12 @@ type Reader interface {
 	PriceSeries(ctx context.Context, symbol string, from, to time.Time, limit int) ([]db.PricePoint, error)
 }
 
+// PlaygroundExecutor runs a sandboxed read-only query. *playground.Sandbox
+// satisfies it; tests supply a fake.
+type PlaygroundExecutor interface {
+	Execute(ctx context.Context, query string) (*playground.Result, error)
+}
+
 // Series query bounds applied when the caller omits or overshoots them.
 const (
 	defaultSeriesLimit  = 1000
@@ -30,16 +38,33 @@ const (
 	defaultSeriesWindow = 24 * time.Hour
 )
 
-// Server wires the read data source to the HTTP handlers.
+// Playground rate limit: the endpoint runs untrusted SQL bounded by a 5s
+// timeout, so a low sustained rate with a small burst is plenty per IP.
+const (
+	playgroundRate      = rate.Limit(2)
+	playgroundBurst     = 5
+	playgroundBucketTTL = 10 * time.Minute
+)
+
+// Server wires the read data source and the SQL sandbox to the HTTP handlers.
 type Server struct {
-	reader  Reader
-	logger  *slog.Logger
-	metrics *metrics
+	reader           Reader
+	sandbox          PlaygroundExecutor
+	playgroundLimits *ipRateLimiter
+	logger           *slog.Logger
+	metrics          *metrics
 }
 
-// New constructs a Server and registers its request metrics with reg.
-func New(reader Reader, logger *slog.Logger, reg prometheus.Registerer) *Server {
-	return &Server{reader: reader, logger: logger, metrics: newMetrics(reg)}
+// New constructs a Server and registers its request metrics with reg. sandbox
+// may be nil to disable the Playground endpoint.
+func New(reader Reader, sandbox PlaygroundExecutor, logger *slog.Logger, reg prometheus.Registerer) *Server {
+	return &Server{
+		reader:           reader,
+		sandbox:          sandbox,
+		playgroundLimits: newIPRateLimiter(playgroundRate, playgroundBurst, playgroundBucketTTL),
+		logger:           logger,
+		metrics:          newMetrics(reg),
+	}
 }
 
 // Handler returns the API router wrapped with its middleware. Routes use
@@ -51,6 +76,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/instruments", s.handleListInstruments)
 	mux.HandleFunc("GET /api/v1/instruments/{symbol}/latest", s.handleLatestPrice)
 	mux.HandleFunc("GET /api/v1/instruments/{symbol}/prices", s.handlePriceSeries)
+	if s.sandbox != nil {
+		// The Playground alone is rate-limited per IP, since it runs untrusted SQL.
+		mux.Handle("POST /api/v1/playground/query",
+			s.playgroundLimits.middleware(http.HandlerFunc(s.handlePlaygroundQuery)))
+	}
 	return s.metrics.instrument(s.recoverer(mux))
 }
 
