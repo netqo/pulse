@@ -56,5 +56,4 @@
 - [ ] Title follows Conventional Commits
 - [ ] Self-reviewed the diff
 - [ ] Docs updated (README) where behavior or design changed
-- [ ] No emojis, em-dashes, or other disallowed non-ASCII characters
 - [ ] CI is green

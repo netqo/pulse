@@ -3,7 +3,7 @@ name: Detect components
 # Reusable workflow that inspects the repository tree and reports which parts of
 # the stack are present yet. Callers gate their jobs on these outputs so the
 # pipeline stays green on an empty scaffold and lights up automatically as each
-# component lands. Single source of truth for detection logic (DRY).
+# component lands. Single source of truth for detection logic.
 
 on:
   workflow_call:
