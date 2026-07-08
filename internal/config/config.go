@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -97,6 +98,12 @@ func CSV(key, fallback string) []string {
 	return getCSV(os.LookupEnv, key, fallback)
 }
 
+// Int returns the integer value of the environment variable named key, or
+// fallback when it is unset, blank or not a valid integer.
+func Int(key string, fallback int) int {
+	return getInt(os.LookupEnv, key, fallback)
+}
+
 // validate ensures every field holds a usable value, returning the first error.
 func (c *Config) validate() error {
 	switch c.Env {
@@ -142,6 +149,17 @@ func getCSV(get lookup, key, fallback string) []string {
 		}
 	}
 	return out
+}
+
+// getInt parses key as a base-10 integer, returning fallback when the variable
+// is unset, blank or malformed.
+func getInt(get lookup, key string, fallback int) int {
+	if v, ok := get(key); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n
+		}
+	}
+	return fallback
 }
 
 // parseLogLevel maps a textual level to slog.Level.
