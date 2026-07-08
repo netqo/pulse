@@ -20,12 +20,17 @@ const (
 	EnvProduction  = "production"
 )
 
+// DefaultDatabaseURL is the PostgreSQL connection string used when DATABASE_URL
+// is unset. It targets the local Docker Compose stack so services and tools run
+// out of the box, and is exported so batch tools that do not need the full
+// shared configuration can reuse the same default.
+const DefaultDatabaseURL = "postgres://pulse:pulse@localhost:5432/pulse?sslmode=disable"
+
 // Default values applied when the corresponding variable is unset. They target
 // the local Docker Compose stack so the services run out of the box.
 const (
 	defaultEnv          = EnvDevelopment
 	defaultLogLevel     = "info"
-	defaultDatabaseURL  = "postgres://pulse:pulse@localhost:5432/pulse?sslmode=disable"
 	defaultRedisURL     = "redis://localhost:6379/0"
 	defaultKafkaBrokers = "localhost:9092"
 	defaultKafkaTopic   = "market.ticks"
@@ -67,7 +72,7 @@ func load(get lookup) (*Config, error) {
 	cfg := &Config{
 		Env:          getString(get, "APP_ENV", defaultEnv),
 		LogLevel:     level,
-		DatabaseURL:  getString(get, "DATABASE_URL", defaultDatabaseURL),
+		DatabaseURL:  getString(get, "DATABASE_URL", DefaultDatabaseURL),
 		RedisURL:     getString(get, "REDIS_URL", defaultRedisURL),
 		KafkaBrokers: getCSV(get, "KAFKA_BROKERS", defaultKafkaBrokers),
 		KafkaTopic:   getString(get, "KAFKA_TOPIC", defaultKafkaTopic),
@@ -102,6 +107,17 @@ func CSV(key, fallback string) []string {
 // fallback when it is unset, blank or not a valid integer.
 func Int(key string, fallback int) int {
 	return getInt(os.LookupEnv, key, fallback)
+}
+
+// Level parses the LOG_LEVEL environment variable into a slog.Level, returning
+// info when it is unset or invalid. Batch tools that do not run the full Load
+// path use it to honor LOG_LEVEL the same way the long-running services do.
+func Level() slog.Level {
+	level, err := parseLogLevel(getString(os.LookupEnv, "LOG_LEVEL", defaultLogLevel))
+	if err != nil {
+		return slog.LevelInfo
+	}
+	return level
 }
 
 // validate ensures every field holds a usable value, returning the first error.
