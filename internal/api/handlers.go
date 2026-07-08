@@ -199,12 +199,14 @@ func toPricePointDTO(p db.PricePoint) pricePointDTO {
 	}
 }
 
-// writeError maps a data-layer error to an HTTP response: ErrNotFound becomes a
-// 404, a client-canceled request is logged quietly and not answered (the
-// caller is already gone), and anything else a logged 500 with an opaque
-// message.
+// writeError maps a data-layer error to an HTTP response: ErrInvalidID becomes a
+// 400, ErrNotFound a 404, a client-canceled request is logged quietly and not
+// answered (the caller is already gone), and anything else a logged 500 with an
+// opaque message.
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, db.ErrInvalidID):
+		s.writeClientError(w, http.StatusBadRequest, "invalid id")
 	case errors.Is(err, db.ErrNotFound):
 		s.writeClientError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, context.Canceled):

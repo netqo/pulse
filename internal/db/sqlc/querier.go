@@ -11,6 +11,9 @@ import (
 )
 
 type Querier interface {
+	// Persists a Playground query and returns the stored row, including its
+	// generated id and timestamp, so the caller can build the share URL.
+	CreateSavedQuery(ctx context.Context, arg CreateSavedQueryParams) (SavedQuery, error)
 	// Deletes an instrument's price rows within the half-open range [from, to).
 	// Backs the historical seeder's idempotent per-window replace.
 	DeletePricesInRange(ctx context.Context, arg DeletePricesInRangeParams) (int64, error)
@@ -30,6 +33,8 @@ type Querier interface {
 	// (instrument_id, ts DESC) index backwards and takes the newest limit rows),
 	// then the outer query re-sorts them ascending for the response.
 	GetPriceSeries(ctx context.Context, arg GetPriceSeriesParams) ([]GetPriceSeriesRow, error)
+	// Loads a saved query by its UUID, or no rows if the id is unknown.
+	GetSavedQuery(ctx context.Context, id pgtype.UUID) (SavedQuery, error)
 	// Bulk-inserts enriched price rows using the COPY protocol, the fastest path
 	// into the partitioned prices table.
 	InsertPrices(ctx context.Context, arg []InsertPricesParams) (int64, error)

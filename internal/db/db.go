@@ -24,6 +24,11 @@ const instrumentSource = "binance"
 // data it would expose) does not exist, letting callers map it to a 404.
 var ErrNotFound = errors.New("db: not found")
 
+// ErrInvalidID is returned when a caller-supplied identifier is malformed (for
+// example a saved-query UUID that does not parse), letting callers map it to a
+// 400 rather than a 404.
+var ErrInvalidID = errors.New("db: invalid id")
+
 // DB is the application's handle to PostgreSQL.
 type DB struct {
 	pool    *pgxpool.Pool
@@ -310,6 +315,72 @@ func (d *DB) ClosesBefore(ctx context.Context, instrumentID int64, before time.T
 	return out, nil
 }
 
+// SavedQuery is a persisted Playground query, addressed by a non-enumerable
+// UUID. ChartConfig is opaque JSON that the frontend interprets; it is nil when
+// no chart configuration was saved.
+type SavedQuery struct {
+	ID          string
+	Title       *string
+	SQL         string
+	ChartConfig []byte
+	CreatedAt   time.Time
+}
+
+// SaveQueryInput carries the fields required to persist a new saved query. Title
+// and ChartConfig are optional; a nil pointer or slice stores SQL NULL.
+type SaveQueryInput struct {
+	Title       *string
+	SQL         string
+	ChartConfig []byte
+}
+
+// SaveQuery persists a Playground query and returns the stored record, including
+// its generated id and creation time.
+func (d *DB) SaveQuery(ctx context.Context, in SaveQueryInput) (SavedQuery, error) {
+	row, err := d.queries.CreateSavedQuery(ctx, sqlc.CreateSavedQueryParams{
+		Title:       optText(in.Title),
+		SqlText:     in.SQL,
+		ChartConfig: in.ChartConfig,
+	})
+	if err != nil {
+		return SavedQuery{}, fmt.Errorf("db: save query: %w", err)
+	}
+	return toSavedQuery(row)
+}
+
+// SavedQuery loads a saved query by its UUID string. It returns ErrInvalidID
+// when id is malformed and ErrNotFound when it is well-formed but unknown.
+func (d *DB) SavedQuery(ctx context.Context, id string) (SavedQuery, error) {
+	uid, err := parseUUID(id)
+	if err != nil {
+		return SavedQuery{}, err
+	}
+	row, err := d.queries.GetSavedQuery(ctx, uid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SavedQuery{}, ErrNotFound
+		}
+		return SavedQuery{}, fmt.Errorf("db: get saved query %q: %w", id, err)
+	}
+	return toSavedQuery(row)
+}
+
+// toSavedQuery converts a stored row into the domain type, rendering its UUID
+// and optional title into plain Go values.
+func toSavedQuery(row sqlc.SavedQuery) (SavedQuery, error) {
+	id, err := uuidString(row.ID)
+	if err != nil {
+		return SavedQuery{}, err
+	}
+	return SavedQuery{
+		ID:          id,
+		Title:       optString(row.Title),
+		SQL:         row.SqlText,
+		ChartConfig: row.ChartConfig,
+		CreatedAt:   row.CreatedAt.Time,
+	}, nil
+}
+
 // instrumentIDBySymbol resolves a symbol to its instrument id, translating a
 // missing row into ErrNotFound. Read methods resolve the id in this separate
 // round trip (rather than a JOIN) on purpose: it keeps "unknown symbol" (404)
@@ -359,6 +430,48 @@ func SplitSymbol(symbol string) (base, quote string) {
 		}
 	}
 	return upper, ""
+}
+
+// parseUUID parses a UUID string into a pgtype.UUID, mapping a malformed value
+// to ErrInvalidID so callers can distinguish it from a missing row.
+func parseUUID(s string) (pgtype.UUID, error) {
+	var u pgtype.UUID
+	if err := u.Scan(s); err != nil {
+		return pgtype.UUID{}, ErrInvalidID
+	}
+	return u, nil
+}
+
+// uuidString renders a pgtype.UUID as its canonical hyphenated string.
+func uuidString(u pgtype.UUID) (string, error) {
+	v, err := u.Value()
+	if err != nil {
+		return "", fmt.Errorf("db: encode uuid: %w", err)
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", errors.New("db: uuid is null")
+	}
+	return s, nil
+}
+
+// optText wraps an optional string as a pgtype.Text, yielding a NULL text when
+// the pointer is nil.
+func optText(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: *s, Valid: true}
+}
+
+// optString renders a nullable text column as an optional string, yielding nil
+// for a NULL value.
+func optString(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	s := t.String
+	return &s
 }
 
 // decimalNumeric parses a required decimal string into a pgtype.Numeric.

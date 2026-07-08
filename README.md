@@ -200,6 +200,35 @@ depth: each is independent, so exposing the endpoint does not rest on any single
 control. (Replica-only routing is added in the replication phase, which removes
 even read load from the primary.)
 
+#### Saving and sharing
+
+A query can be saved and shared through a non-enumerable UUID:
+
+| Method and path | Description |
+| --- | --- |
+| `POST /api/v1/playground/save` | Persist a query, returning its id and load path. |
+| `GET /api/v1/playground/q/{id}` | Load a saved query by id. |
+
+```bash
+# Save a query (optional title and opaque chart_config for the frontend).
+curl -s localhost:8081/api/v1/playground/save \
+  -H 'content-type: application/json' \
+  -d '{"query":"SELECT symbol FROM instruments ORDER BY symbol","title":"symbols","chart_config":{"type":"bar"}}'
+# -> {"id":"<uuid>","url":"/api/v1/playground/q/<uuid>"}
+
+# Load it back.
+curl -s localhost:8081/api/v1/playground/q/<uuid>
+```
+
+The saved query must itself pass the read-only validation, so only a query
+shaped like a read is stored (the check gates the leading keyword, not full SQL
+validity). The UUID primary key makes the share URL non-guessable, and
+`saved_queries` is deliberately excluded from the `playground_readonly` grants,
+so sandboxed SQL cannot read back other users' saved queries. Save is throttled
+per IP; loading by id is a cheap indexed lookup. A malformed id returns `400`,
+an unknown id `404`. Saved queries currently accumulate without a retention or
+row-cap policy; adding one (TTL or a bounded count) is deferred to a later phase.
+
 ## Roadmap
 
 Development proceeds in independently demonstrable phases, each with an explicit "done" checkpoint:
