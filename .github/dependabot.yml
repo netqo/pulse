@@ -1,8 +1,10 @@
 version: 2
 
 # Supply-chain hygiene: keep every ecosystem's dependencies patched. Entries for
-# gomod, npm and docker stay idle until their manifests land, then activate
-# automatically. Grouped updates keep PR noise low.
+# gomod and docker stay idle until their manifests land, then activate
+# automatically. Grouped updates keep PR noise low. The web frontend uses Bun,
+# whose lockfile Dependabot does not yet support, so its dependencies are updated
+# manually (for example `bun update`) rather than via an npm ecosystem entry.
 
 updates:
   - package-ecosystem: github-actions
@@ -29,21 +31,6 @@ updates:
     open-pull-requests-limit: 10
     groups:
       go-minor-and-patch:
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: npm
-    directory: /web
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: build
-    labels:
-      - dependencies
-    open-pull-requests-limit: 10
-    groups:
-      npm-minor-and-patch:
         update-types:
           - minor
           - patch
