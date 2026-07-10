@@ -229,6 +229,28 @@ per IP; loading by id is a cheap indexed lookup. A malformed id returns `400`,
 an unknown id `404`. Saved queries currently accumulate without a retention or
 row-cap policy; adding one (TTL or a bounded count) is deferred to a later phase.
 
+## Web frontend
+
+The `web/` app is the SQL Playground UI: a React 18 + TypeScript single-page app
+built with Vite, using the monaco editor for SQL input and rendering results as
+a table. It talks to the API over the same `/api` paths documented above; in
+development the Vite dev server proxies them to the running API, so no CORS
+configuration is needed.
+
+```bash
+cd web
+bun install
+bun run dev   # Vite dev server on http://localhost:5173, proxying /api -> :8081
+```
+
+The API must be running (see above) for queries to execute. Point the proxy at a
+different API with `PULSE_API_URL`. Other scripts: `bun run build` (production
+bundle), `bun run typecheck`, `bun run lint`. To reach the dev server from
+another machine on the LAN, add `--host`: `bun run dev --host`.
+
+This iteration ships the editor and the results table; the table/chart toggle
+(Apache ECharts) and save/share UI land in later slices.
+
 ## Roadmap
 
 Development proceeds in independently demonstrable phases, each with an explicit "done" checkpoint:
