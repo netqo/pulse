@@ -73,17 +73,23 @@ func TestSandboxIntegration(t *testing.T) {
 	})
 
 	t.Run("select returns typed columns and rows", func(t *testing.T) {
-		res, err := sb.Execute(ctx, "SELECT 42::bigint AS n, 'hi'::text AS s, 1.5::numeric AS d, NULL::text AS e")
+		// The final column is 2^53 + 1, past JavaScript's safe integer range, to
+		// pin that bigints are rendered as exact strings rather than JSON numbers.
+		res, err := sb.Execute(ctx,
+			"SELECT 42::bigint AS n, 'hi'::text AS s, 1.5::numeric AS d, NULL::text AS e, 9007199254740993::bigint AS big")
 		if err != nil {
 			t.Fatalf("execute: %v", err)
 		}
-		if len(res.Columns) != 4 || res.Columns[0].Name != "n" {
+		if len(res.Columns) != 5 || res.Columns[0].Name != "n" {
 			t.Fatalf("columns = %+v", res.Columns)
 		}
 		if res.RowCount != 1 {
 			t.Fatalf("row count = %d, want 1", res.RowCount)
 		}
 		row := res.Rows[0]
+		if row[0] != "42" { // bigint rendered as a string to preserve precision
+			t.Errorf("bigint cell = %v (%T), want \"42\"", row[0], row[0])
+		}
 		if row[1] != "hi" {
 			t.Errorf("text cell = %v, want hi", row[1])
 		}
@@ -92,6 +98,9 @@ func TestSandboxIntegration(t *testing.T) {
 		}
 		if row[3] != nil {
 			t.Errorf("null cell = %v, want nil", row[3])
+		}
+		if row[4] != "9007199254740993" {
+			t.Errorf("large bigint cell = %v, want \"9007199254740993\" (precision preserved)", row[4])
 		}
 	})
 
@@ -170,10 +179,41 @@ func TestSandboxIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("count advisory locks: %v", err)
 		}
-		if got := res.Rows[0][0]; got != int64(0) {
-			t.Errorf("advisory locks held after reset = %v, want 0", got)
+		// count(*) is a bigint, rendered as a string to preserve precision.
+		if got := res.Rows[0][0]; got != "0" {
+			t.Errorf("advisory locks held after reset = %v, want \"0\"", got)
 		}
 	})
+}
+
+// TestSandboxReusesConnectionAfterReset guards the exec-mode fix: with a single
+// pooled connection, the same query run repeatedly reuses the backend, and the
+// post-query DISCARD ALL would invalidate a cached prepared statement (SQLSTATE
+// 26000) unless the sandbox runs its statements without the statement cache.
+func TestSandboxReusesConnectionAfterReset(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL not set; skipping database integration test")
+	}
+	ctx := context.Background()
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+	setupSandboxFixture(ctx, t, pool)
+	sb := New(pool)
+
+	for i := 0; i < 3; i++ {
+		if _, err := sb.Execute(ctx, "SELECT id, label FROM playground_probe"); err != nil {
+			t.Fatalf("iteration %d: %v", i, err)
+		}
+	}
 }
 
 // setupSandboxFixture provisions a self-contained fixture: the

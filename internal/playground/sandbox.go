@@ -22,6 +22,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -47,6 +48,11 @@ const (
 	maxCellBytes   = 64 << 10 // 64 KiB, truncates a single oversized cell
 	maxResultBytes = 8 << 20  // 8 MiB, hard cap on the serialized result
 )
+
+// execMode runs every sandbox statement without pgx's named prepared-statement
+// cache, which the post-query DISCARD ALL would otherwise invalidate (see the
+// note in Execute).
+const execMode = pgx.QueryExecModeExec
 
 // Static validation errors, surfaced to the caller as client errors.
 var (
@@ -135,6 +141,12 @@ func (s *Sandbox) Execute(ctx context.Context, query string) (*Result, error) {
 	// rollback. Both operands are trusted (a constant role name, an integer
 	// millisecond count), never user input.
 	//
+	// Every statement runs under execMode: the post-query DISCARD ALL deallocates
+	// prepared statements, so the default statement-caching mode would later reuse
+	// a cached statement the server has already dropped (SQLSTATE 26000). Exec
+	// mode skips the named-statement cache while keeping binary decoding, and the
+	// sandbox's one-off SQL gains nothing from caching anyway.
+	//
 	// Safety of the layering, verified against PostgreSQL: the subquery wrap
 	// rejects top-level data-modifying CTEs outright; SET LOCAL ROLE and the
 	// timeout are themselves queries, so the read-only mode can no longer be
@@ -143,17 +155,17 @@ func (s *Sandbox) Execute(ctx context.Context, query string) (*Result, error) {
 	// fixed when it starts. A query that escalates its role via set_config is
 	// therefore inert: it can neither read a non-whitelisted object nor write.
 	timeoutMS := s.queryTimeout.Milliseconds()
-	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", timeoutMS)); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", timeoutMS), execMode); err != nil {
 		return nil, fmt.Errorf("playground: set timeout: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+sandboxRole); err != nil {
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+sandboxRole, execMode); err != nil {
 		return nil, fmt.Errorf("playground: set role: %w", err)
 	}
 
 	// Wrapping in a bounded subquery caps the row count regardless of the user's
 	// own LIMIT and turns any multi-statement input into a syntax error.
 	wrapped := fmt.Sprintf("SELECT * FROM (%s) AS _sandbox LIMIT %d", stmt, maxRows+1)
-	rows, err := tx.Query(ctx, wrapped)
+	rows, err := tx.Query(ctx, wrapped, execMode)
 	if err != nil {
 		return nil, asQueryError(err)
 	}
@@ -289,8 +301,15 @@ func normalizeValue(v any) any {
 			return nil
 		}
 		return val
-	case bool, int16, int32, int64, float32, float64:
-		// JSON-native scalars pass through unchanged.
+	case int64:
+		// 64-bit integers can exceed JavaScript's safe integer range (2^53), so
+		// render them as strings to preserve precision on the wire, as numerics
+		// and timestamps already are.
+		return strconv.FormatInt(x, 10)
+	case uint64:
+		return strconv.FormatUint(x, 10)
+	case bool, int16, int32, uint16, uint32, float32, float64:
+		// Smaller scalars fit a JSON number exactly and pass through unchanged.
 		return v
 	default:
 		// Exotic decoded types (arrays, uuid, json, composites, ...) may not be
@@ -320,7 +339,7 @@ func capString(s string) string {
 func resetConn(conn *pgxpool.Conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), resetTimeout)
 	defer cancel()
-	_, _ = conn.Exec(ctx, "DISCARD ALL")
+	_, _ = conn.Exec(ctx, "DISCARD ALL", execMode)
 }
 
 // asQueryError converts a PostgreSQL error into a *QueryError whose message is
