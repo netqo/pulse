@@ -46,7 +46,7 @@ const (
 	resetTimeout   = 2 * time.Second
 	maxRows        = 1000
 	maxCellBytes   = 64 << 10 // 64 KiB, truncates a single oversized cell
-	maxResultBytes = 8 << 20  // 8 MiB, hard cap on the serialized result
+	maxResultBytes = 8 << 20  // 8 MiB, hard cap on the raw wire bytes read into a result
 )
 
 // execMode runs every sandbox statement without pgx's named prepared-statement
@@ -247,25 +247,32 @@ func scanResult(rows pgx.Rows) (*Result, error) {
 			truncated = true
 			break
 		}
+		// Budget on the raw wire size of the row, measured before pgx decodes it.
+		// RawValues counts every column uniformly (not just text), so the cap is a
+		// true bound on the result rather than on its string cells alone. Checking
+		// it before the decode also stops a single pathological cell (e.g.
+		// SELECT repeat('x', 1e9)) from being materialized a second time as a Go
+		// value: the row is one buffered protocol message, itself bounded by
+		// PostgreSQL's 1 GiB per-field limit, and we skip it rather than doubling it.
+		rowBytes := 0
+		for _, rv := range rows.RawValues() {
+			rowBytes += len(rv)
+		}
+		if total+rowBytes > maxResultBytes {
+			truncated = true
+			break
+		}
+		total += rowBytes
+
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err
 		}
 		row := make([]any, len(values))
 		for i, v := range values {
-			cell := normalizeValue(v)
-			row[i] = cell
-			if s, ok := cell.(string); ok {
-				total += len(s)
-			}
+			row[i] = normalizeValue(v)
 		}
 		out = append(out, row)
-		// Check the cap after counting this row's cells, so a single wide row is
-		// included rather than allowed through by a between-rows-only check.
-		if total >= maxResultBytes {
-			truncated = true
-			break
-		}
 	}
 	if !truncated {
 		if err := rows.Err(); err != nil {
