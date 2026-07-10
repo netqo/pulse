@@ -97,14 +97,23 @@ export function defaultChartConfig(result: QueryResult): ChartConfig | null {
 }
 
 // detectOhlc maps open/high/low/close by column name, falling back to the first
-// available numeric columns for any that are not found by name.
+// available numeric columns for any that are not found by name. Matching is
+// restricted to numeric columns and prefers an exact name over a substring, so a
+// klines-style "open_time" timestamp never wins over the "open" price column.
 function detectOhlc(result: QueryResult, numeric: number[], x: number): OhlcMapping {
-  const byName = (keyword: string) =>
-    result.columns.findIndex((c) => c.name.toLowerCase().includes(keyword));
+  const named = numeric.map((i) => [i, result.columns[i].name.toLowerCase()] as const);
+  const byName = (keyword: string) => {
+    const exact = named.find(([, name]) => name === keyword);
+    if (exact) {
+      return exact[0];
+    }
+    const partial = named.find(([, name]) => name.includes(keyword));
+    return partial ? partial[0] : -1;
+  };
   const fallback = numeric.filter((i) => i !== x);
   const pick = (keyword: string, nth: number) => {
-    const named = byName(keyword);
-    return named >= 0 ? named : (fallback[nth] ?? numeric[nth] ?? numeric[0]);
+    const match = byName(keyword);
+    return match >= 0 ? match : (fallback[nth] ?? numeric[nth] ?? numeric[0]);
   };
   return {
     open: pick('open', 0),
