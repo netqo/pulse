@@ -3,6 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError, executeQuery, loadQuery, saveQuery } from '../api/client';
 import type { QueryResult } from '../api/types';
+import {
+  defaultChartConfig,
+  isChartConfigCompatible,
+  parseSavedChartConfig,
+  type ChartConfig,
+  type ResultView,
+  type SavedChartConfig,
+} from './chart/chartOptions';
 import { ResultsPanel } from './ResultsPanel';
 import { SqlEditor } from './SqlEditor';
 
@@ -28,7 +36,12 @@ export function Playground() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [chartView, setChartView] = useState<ResultView>('table');
+  const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null);
   const inFlight = useRef<AbortController | null>(null);
+  // A restored chart state waiting to be applied to the next result (set when a
+  // shared query loads, consumed once its query is run).
+  const pendingChart = useRef<SavedChartConfig | null>(null);
 
   const execute = useCallback(async (sql: string) => {
     inFlight.current?.abort();
@@ -59,10 +72,31 @@ export function Playground() {
 
   const run = useCallback(() => execute(query), [execute, query]);
 
-  // Load a shared query when the URL carries an id. The editor is populated but
-  // not run: the visitor triggers the query themselves.
+  // Initialize the chart mapping for each new result. A pending restored config
+  // (from loading a shared query) is applied once when it still fits the
+  // columns; otherwise the mapping resets to sensible defaults.
+  useEffect(() => {
+    if (!result) {
+      return;
+    }
+    const pending = pendingChart.current;
+    pendingChart.current = null;
+    if (pending && pending.config && isChartConfigCompatible(result, pending.config)) {
+      setChartConfig(pending.config);
+      setChartView(pending.view);
+      return;
+    }
+    setChartConfig(defaultChartConfig(result));
+    if (pending) {
+      setChartView(pending.view);
+    }
+  }, [result]);
+
+  // Load a shared query when the URL carries an id. The editor and chart state
+  // are populated but the query is not run: the visitor triggers it themselves.
   useEffect(() => {
     if (!id) {
+      pendingChart.current = null;
       return;
     }
     const controller = new AbortController();
@@ -72,6 +106,7 @@ export function Playground() {
         setQuery(saved.query);
         setTitle(saved.title ?? '');
         setShareUrl(`${window.location.origin}/q/${id}`);
+        pendingChart.current = parseSavedChartConfig(saved.chart_config);
       } catch (err) {
         if (controller.signal.aborted) {
           return;
@@ -101,7 +136,8 @@ export function Playground() {
     setSaving(true);
     setSaveError(null);
     try {
-      const saved = await saveQuery({ query, title: title.trim() || undefined });
+      const chart: SavedChartConfig = { view: chartView, config: chartConfig };
+      const saved = await saveQuery({ query, title: title.trim() || undefined, chart_config: chart });
       setShareUrl(`${window.location.origin}/q/${saved.id}`);
       navigate(`/q/${saved.id}`);
     } catch (err) {
@@ -109,7 +145,7 @@ export function Playground() {
     } finally {
       setSaving(false);
     }
-  }, [query, title, navigate]);
+  }, [query, title, chartView, chartConfig, navigate]);
 
   const hasQuery = query.trim().length > 0;
 
@@ -158,7 +194,15 @@ export function Playground() {
             {error}
           </div>
         )}
-        {!running && !error && result && <ResultsPanel result={result} />}
+        {!running && !error && result && (
+          <ResultsPanel
+            result={result}
+            view={chartView}
+            onViewChange={setChartView}
+            config={chartConfig}
+            onConfigChange={setChartConfig}
+          />
+        )}
         {!running && !error && !result && <p className="muted">Run a query to see results.</p>}
       </div>
     </section>
