@@ -248,8 +248,10 @@ different API with `PULSE_API_URL`. Other scripts: `bun run build` (production
 bundle), `bun run typecheck`, `bun run lint`. To reach the dev server from
 another machine on the LAN, add `--host`: `bun run dev --host`.
 
-This iteration ships the editor and the results table; the table/chart toggle
-(Apache ECharts) and save/share UI land in later slices.
+The results panel toggles between a table and an Apache ECharts chart (line,
+bar, or candlestick), with controls to map result columns onto the axes and
+series (OHLC columns are auto-detected by name for candlesticks). The save and
+share UI lands in a later slice.
 
 ## Roadmap
 

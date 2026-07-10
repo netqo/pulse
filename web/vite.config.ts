@@ -28,6 +28,9 @@ export default defineConfig({
           if (id.includes('monaco-editor')) {
             return 'monaco';
           }
+          if (id.includes('echarts') || id.includes('zrender')) {
+            return 'echarts';
+          }
           return undefined;
         },
       },

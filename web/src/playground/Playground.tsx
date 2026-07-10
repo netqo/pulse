@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, executeQuery } from '../api/client';
 import type { QueryResult } from '../api/types';
-import { ResultsTable } from './ResultsTable';
+import { ResultsPanel } from './ResultsPanel';
 import { SqlEditor } from './SqlEditor';
 
 const DEFAULT_QUERY = `SELECT symbol, base_asset, quote_asset
@@ -76,7 +76,7 @@ export function Playground() {
             {error}
           </div>
         )}
-        {!running && !error && result && <ResultsTable result={result} />}
+        {!running && !error && result && <ResultsPanel result={result} />}
         {!running && !error && !result && <p className="muted">Run a query to see results.</p>}
       </div>
     </section>
