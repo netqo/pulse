@@ -8,6 +8,11 @@
 import { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution';
+// The editor.api entrypoint ships the editor core but almost no contributions.
+// Pull in word operations explicitly so Ctrl+Left/Right word navigation and
+// Ctrl+Backspace/Delete word deletion work; without it those keys fall back to
+// inconsistent browser-native behavior (broken in Firefox).
+import 'monaco-editor/esm/vs/editor/contrib/wordOperations/browser/wordOperations';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 
 declare global {
