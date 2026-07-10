@@ -189,6 +189,113 @@ main {
   white-space: pre-wrap;
 }
 
+.results-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.view-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.view-toggle button {
+  background: var(--panel);
+  color: var(--muted);
+  border: none;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.view-toggle button.active {
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.chart-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem 1rem;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.control select {
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+fieldset.series {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+fieldset.series legend {
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.ohlc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.chart-canvas {
+  height: 440px;
+  min-height: 320px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.chart-hint {
+  padding: 1.25rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  max-width: 46rem;
+}
+
 .results-meta {
   display: flex;
   align-items: center;
