@@ -17,3 +17,25 @@ export interface QueryResult {
 }
 
 export type Cell = string | number | boolean | null;
+
+/** A persisted, shareable Playground query as returned by the load endpoint. */
+export interface SavedQuery {
+  id: string;
+  title?: string;
+  query: string;
+  chart_config?: unknown;
+  created_at: string;
+}
+
+/** The fields sent when saving a query. */
+export interface SaveQueryInput {
+  query: string;
+  title?: string;
+  chart_config?: unknown;
+}
+
+/** The save endpoint's response: the new id and the path that loads it. */
+export interface SaveQueryResponse {
+  id: string;
+  url: string;
+}
