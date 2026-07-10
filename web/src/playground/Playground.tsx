@@ -42,6 +42,10 @@ export function Playground() {
   // A restored chart state waiting to be applied to the next result (set when a
   // shared query loads, consumed once its query is run).
   const pendingChart = useRef<SavedChartConfig | null>(null);
+  // Id of a query just saved locally. Saving navigates to /q/{id}, which would
+  // otherwise make the load effect refetch the record we already hold (and wipe
+  // the visible result if that refetch transiently fails); we skip that reload.
+  const justSavedId = useRef<string | null>(null);
 
   const execute = useCallback(async (sql: string) => {
     inFlight.current?.abort();
@@ -99,6 +103,12 @@ export function Playground() {
       pendingChart.current = null;
       return;
     }
+    if (justSavedId.current === id) {
+      // We just saved this query and navigated here; its state is already in
+      // place, so skip the reload rather than round-tripping our own write.
+      justSavedId.current = null;
+      return;
+    }
     const controller = new AbortController();
     void (async () => {
       try {
@@ -138,6 +148,7 @@ export function Playground() {
     try {
       const chart: SavedChartConfig = { view: chartView, config: chartConfig };
       const saved = await saveQuery({ query, title: title.trim() || undefined, chart_config: chart });
+      justSavedId.current = saved.id;
       setShareUrl(`${window.location.origin}/q/${saved.id}`);
       navigate(`/q/${saved.id}`);
     } catch (err) {

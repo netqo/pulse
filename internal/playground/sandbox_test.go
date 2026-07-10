@@ -148,6 +148,31 @@ func TestSandboxIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("byte cap truncates a large multi-row result", func(t *testing.T) {
+		// Each row carries ~100 KiB, so the cumulative raw size crosses the 8 MiB
+		// budget well before the 1000-row cap: the result stops partway and says so.
+		res, err := sb.Execute(ctx, "SELECT repeat('x', 100000) FROM generate_series(1, 200)")
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		if !res.Truncated || res.RowCount == 0 || res.RowCount >= maxRows {
+			t.Errorf("byte cap = %d rows truncated=%v, want a partial truncated result", res.RowCount, res.Truncated)
+		}
+	})
+
+	t.Run("a single oversized cell is dropped, not doubled in memory", func(t *testing.T) {
+		// One cell larger than the whole-result budget is skipped before it is
+		// decoded into a second copy; the caller still gets a well-formed truncated
+		// result rather than an error or a huge allocation.
+		res, err := sb.Execute(ctx, "SELECT repeat('x', 10000000) AS big")
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		if !res.Truncated || res.RowCount != 0 {
+			t.Errorf("oversized cell = %d rows truncated=%v, want 0 rows truncated=true", res.RowCount, res.Truncated)
+		}
+	})
+
 	t.Run("multi-statement input is rejected", func(t *testing.T) {
 		_, err := sb.Execute(ctx, "SELECT 1; DROP TABLE playground_probe")
 		var qErr *QueryError
