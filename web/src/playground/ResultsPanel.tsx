@@ -1,27 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
-
 import type { QueryResult } from '../api/types';
 import { ChartControls } from './ChartControls';
 import { ResultChart } from './chart/ResultChart';
-import { chartConfigIssue, defaultChartConfig, type ChartConfig } from './chart/chartOptions';
+import { chartConfigIssue, type ChartConfig, type ResultView } from './chart/chartOptions';
 import { ResultsTable } from './ResultsTable';
 
-type View = 'table' | 'chart';
+interface ResultsPanelProps {
+  result: QueryResult;
+  view: ResultView;
+  onViewChange: (view: ResultView) => void;
+  config: ChartConfig | null;
+  onConfigChange: (config: ChartConfig) => void;
+}
 
 /**
- * ResultsPanel shows a result as either a table or a chart. The view choice
- * persists across runs; the chart mapping resets to sensible defaults whenever a
- * new result arrives, since its columns may differ.
+ * ResultsPanel shows a result as either a table or a chart. It is controlled:
+ * the parent owns the view and chart mapping so both can be persisted and
+ * restored with a saved query.
  */
-export function ResultsPanel({ result }: { result: QueryResult }) {
-  const [view, setView] = useState<View>('table');
-  const initialConfig = useMemo(() => defaultChartConfig(result), [result]);
-  const [config, setConfig] = useState<ChartConfig | null>(initialConfig);
-
-  useEffect(() => {
-    setConfig(initialConfig);
-  }, [initialConfig]);
-
+export function ResultsPanel({ result, view, onViewChange, config, onConfigChange }: ResultsPanelProps) {
   return (
     <div className="results-panel">
       <div className="view-toggle" role="tablist" aria-label="Result view">
@@ -30,7 +26,7 @@ export function ResultsPanel({ result }: { result: QueryResult }) {
           role="tab"
           aria-selected={view === 'table'}
           className={view === 'table' ? 'active' : ''}
-          onClick={() => setView('table')}
+          onClick={() => onViewChange('table')}
         >
           Table
         </button>
@@ -39,7 +35,7 @@ export function ResultsPanel({ result }: { result: QueryResult }) {
           role="tab"
           aria-selected={view === 'chart'}
           className={view === 'chart' ? 'active' : ''}
-          onClick={() => setView('chart')}
+          onClick={() => onViewChange('chart')}
         >
           Chart
         </button>
@@ -48,7 +44,7 @@ export function ResultsPanel({ result }: { result: QueryResult }) {
       {view === 'table' && <ResultsTable result={result} />}
       {view === 'chart' &&
         (config ? (
-          <ChartArea result={result} config={config} onChange={setConfig} />
+          <ChartArea result={result} config={config} onChange={onConfigChange} />
         ) : (
           <p className="muted">This result has no numeric column to chart.</p>
         ))}

@@ -25,6 +25,19 @@ export interface ChartConfig {
   ohlc: OhlcMapping;
 }
 
+/** Which representation of a result is on screen. */
+export type ResultView = 'table' | 'chart';
+
+/**
+ * SavedChartConfig is the persisted visualization state of a query: the chosen
+ * view and, when charting, the column mapping. It is stored opaquely by the API
+ * and restored when a shared query is loaded.
+ */
+export interface SavedChartConfig {
+  view: ResultView;
+  config: ChartConfig | null;
+}
+
 /** Converts a cell to a finite number, or null when it is not numeric. */
 export function toNumber(cell: Cell): number | null {
   if (typeof cell === 'number') {
@@ -118,6 +131,78 @@ export function chartConfigIssue(result: QueryResult, config: ChartConfig): stri
     return 'Select at least one series column to plot.';
   }
   return null;
+}
+
+/**
+ * isChartConfigCompatible reports whether a mapping can be applied to a result:
+ * every referenced column index must be within the result's columns. A null
+ * config (no chart) is always compatible. Used to decide whether a restored
+ * chart mapping still fits, or the defaults should be used instead.
+ */
+export function isChartConfigCompatible(result: QueryResult, config: ChartConfig | null): boolean {
+  if (config === null) {
+    return true;
+  }
+  const cols = result.columns.length;
+  const inRange = (i: number) => Number.isInteger(i) && i >= 0 && i < cols;
+  const { open, high, low, close } = config.ohlc;
+  return inRange(config.x) && config.ys.every(inRange) && [open, high, low, close].every(inRange);
+}
+
+/**
+ * parseSavedChartConfig validates untrusted persisted state (as returned by the
+ * API) into a SavedChartConfig, or null when it is absent or malformed. This
+ * guards against stale or hand-edited stored values reaching the chart layer.
+ */
+export function parseSavedChartConfig(raw: unknown): SavedChartConfig | null {
+  if (raw === null || typeof raw !== 'object') {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const view = record.view === 'chart' ? 'chart' : record.view === 'table' ? 'table' : null;
+  if (view === null) {
+    return null;
+  }
+  return { view, config: parseChartConfig(record.config) };
+}
+
+function parseChartConfig(raw: unknown): ChartConfig | null {
+  if (raw === null || raw === undefined || typeof raw !== 'object') {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const type = record.type;
+  if (type !== 'line' && type !== 'bar' && type !== 'candlestick') {
+    return null;
+  }
+  if (typeof record.x !== 'number') {
+    return null;
+  }
+  if (!Array.isArray(record.ys) || !record.ys.every((n) => typeof n === 'number')) {
+    return null;
+  }
+  const ohlc = parseOhlc(record.ohlc);
+  if (ohlc === null) {
+    return null;
+  }
+  return { type, x: record.x, ys: record.ys as number[], ohlc };
+}
+
+function parseOhlc(raw: unknown): OhlcMapping | null {
+  if (raw === null || typeof raw !== 'object') {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const keys: (keyof OhlcMapping)[] = ['open', 'high', 'low', 'close'];
+  if (keys.some((k) => typeof record[k] !== 'number')) {
+    return null;
+  }
+  return {
+    open: record.open as number,
+    high: record.high as number,
+    low: record.low as number,
+    close: record.close as number,
+  };
 }
 
 /** Builds the ECharts option for a result under the given mapping. */
