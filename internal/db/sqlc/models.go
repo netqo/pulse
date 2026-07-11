@@ -8,6 +8,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// Audit log of fired alerts and their notification delivery status.
+type AlertHistory struct {
+	ID             int64
+	RuleID         int64
+	FiredAt        pgtype.Timestamptz
+	ObservedValue  pgtype.Numeric
+	DeliveryStatus string
+}
+
+// User-configured alerting conditions evaluated against the live tick stream.
+type AlertRule struct {
+	ID            int64
+	InstrumentID  int64
+	RuleType      string
+	Threshold     pgtype.Numeric
+	WindowSeconds pgtype.Int4
+	Channel       string
+	Target        string
+	IsEnabled     bool
+	CreatedAt     pgtype.Timestamptz
+}
+
 type Instrument struct {
 	ID         int64
 	Symbol     string

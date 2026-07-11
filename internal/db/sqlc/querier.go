@@ -11,9 +11,14 @@ import (
 )
 
 type Querier interface {
+	// Persists a new alerting rule and returns the stored row.
+	CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error)
 	// Persists a Playground query and returns the stored row, including its
 	// generated id and timestamp, so the caller can build the share URL.
 	CreateSavedQuery(ctx context.Context, arg CreateSavedQueryParams) (SavedQuery, error)
+	// Deletes a rule by id, returning it so the caller can tell a real deletion from
+	// a missing id (no rows).
+	DeleteAlertRule(ctx context.Context, id int64) (int64, error)
 	// Deletes an instrument's price rows within the half-open range [from, to).
 	// Backs the historical seeder's idempotent per-window replace.
 	DeletePricesInRange(ctx context.Context, arg DeletePricesInRangeParams) (int64, error)
@@ -35,9 +40,16 @@ type Querier interface {
 	GetPriceSeries(ctx context.Context, arg GetPriceSeriesParams) ([]GetPriceSeriesRow, error)
 	// Loads a saved query by its UUID, or no rows if the id is unknown.
 	GetSavedQuery(ctx context.Context, id pgtype.UUID) (SavedQuery, error)
+	// Records a fired alert and the outcome of its notification delivery.
+	InsertAlertHistory(ctx context.Context, arg InsertAlertHistoryParams) (AlertHistory, error)
 	// Bulk-inserts enriched price rows using the COPY protocol, the fastest path
 	// into the partitioned prices table.
 	InsertPrices(ctx context.Context, arg []InsertPricesParams) (int64, error)
+	// Lists every alerting rule, newest first, for the management API.
+	ListAlertRules(ctx context.Context) ([]AlertRule, error)
+	// Lists the enabled rules the Alerting service evaluates, joined to the symbol so
+	// the engine can match ticks by symbol without a second lookup.
+	ListEnabledAlertRules(ctx context.Context) ([]ListEnabledAlertRulesRow, error)
 	// Lists every instrument, ordered by symbol for a stable response.
 	ListInstruments(ctx context.Context) ([]Instrument, error)
 	// Inserts an instrument or returns the existing one's id, keyed by symbol.
