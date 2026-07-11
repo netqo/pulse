@@ -176,18 +176,23 @@ func findRule(rules []AlertRule, id int64) *AlertRule {
 }
 
 // applyAlertsSchema resets and applies the alerting tables so the test runs
-// against a known state. alert_history is dropped first because it references
-// alert_rules.
+// against a known state. alert_rules references instruments, so the base tables
+// from 0001 are (re)created too; CASCADE clears any existing foreign keys.
 func applyAlertsSchema(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS alert_history; DROP TABLE IF EXISTS alert_rules`); err != nil {
-		t.Fatalf("drop alert tables: %v", err)
+	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS alert_history, alert_rules, prices, instruments CASCADE`); err != nil {
+		t.Fatalf("drop schema: %v", err)
 	}
-	up, err := os.ReadFile("../../migrations/0005_alerting.up.sql")
-	if err != nil {
-		t.Fatalf("read migration: %v", err)
-	}
-	if _, err := pool.Exec(ctx, string(up)); err != nil {
-		t.Fatalf("apply migration: %v", err)
+	for _, path := range []string{
+		"../../migrations/0001_init.up.sql",
+		"../../migrations/0005_alerting.up.sql",
+	} {
+		up, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read migration %s: %v", path, err)
+		}
+		if _, err := pool.Exec(ctx, string(up)); err != nil {
+			t.Fatalf("apply migration %s: %v", path, err)
+		}
 	}
 }
