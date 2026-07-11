@@ -19,7 +19,7 @@ import (
 // Firing is a rule that a tick triggered, carrying the observed price (as an
 // exact decimal string) that triggered it for the audit record.
 type Firing struct {
-	Rule          db.EnabledRule
+	Rule          db.RuleWithSymbol
 	ObservedValue string
 }
 
@@ -35,7 +35,7 @@ type pricePoint struct {
 // the edge flag that makes level conditions fire once per crossing rather than on
 // every tick.
 type ruleEval struct {
-	rule      db.EnabledRule
+	rule      db.RuleWithSymbol
 	threshold float64
 	window    time.Duration
 
@@ -65,7 +65,7 @@ func NewEvaluator() *Evaluator {
 // state (price history, edge flag) of rules that are still present so a refresh
 // does not cause spurious re-fires. Rules whose threshold cannot be parsed are
 // dropped; the schema stores a valid NUMERIC, so this is a defensive guard.
-func (e *Evaluator) SetRules(rules []db.EnabledRule) {
+func (e *Evaluator) SetRules(rules []db.RuleWithSymbol) {
 	next := make(map[int64]*ruleEval, len(rules))
 	bySymbol := make(map[string][]*ruleEval)
 	for _, r := range rules {
@@ -88,7 +88,7 @@ func (e *Evaluator) SetRules(rules []db.EnabledRule) {
 // configure updates a ruleEval's definition. When the condition parameters change
 // the edge flag is reset so the rule re-arms; the price observations (prevPrice,
 // history) stay valid because they are independent of the threshold.
-func (ev *ruleEval) configure(r db.EnabledRule, threshold float64) {
+func (ev *ruleEval) configure(r db.RuleWithSymbol, threshold float64) {
 	var window time.Duration
 	if r.WindowSeconds != nil {
 		window = time.Duration(*r.WindowSeconds) * time.Second

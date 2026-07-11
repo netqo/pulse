@@ -29,7 +29,7 @@ func newPlaygroundServer(t *testing.T, exec PlaygroundExecutor) http.Handler {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	reader := &fakeReader{}
-	return New(reader, exec, nil, logger, prometheus.NewRegistry()).Handler()
+	return New(Config{Reader: reader, Sandbox: exec, Logger: logger, Registerer: prometheus.NewRegistry()}).Handler()
 }
 
 func postQuery(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {

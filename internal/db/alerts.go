@@ -52,10 +52,10 @@ type AlertRule struct {
 	CreatedAt     time.Time
 }
 
-// EnabledRule is an enabled AlertRule paired with its instrument symbol, which
-// the Alerting engine uses to match rules to incoming ticks without a second
-// lookup.
-type EnabledRule struct {
+// RuleWithSymbol is an AlertRule paired with its instrument symbol. The Alerting
+// engine uses it to match rules to ticks without a second lookup, and the
+// management API uses it to list rules by symbol rather than raw instrument id.
+type RuleWithSymbol struct {
 	AlertRule
 	Symbol string
 }
@@ -109,16 +109,17 @@ func (d *DB) CreateAlertRule(ctx context.Context, in CreateAlertRuleInput) (Aler
 	return toAlertRule(row)
 }
 
-// ListAlertRules returns every alerting rule, newest first, for the management
-// API.
-func (d *DB) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
+// ListAlertRules returns every alerting rule, newest first, each paired with its
+// instrument symbol, for the management API.
+func (d *DB) ListAlertRules(ctx context.Context) ([]RuleWithSymbol, error) {
 	rows, err := d.queries.ListAlertRules(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("db: list alert rules: %w", err)
 	}
-	out := make([]AlertRule, 0, len(rows))
+	out := make([]RuleWithSymbol, 0, len(rows))
 	for _, r := range rows {
-		rule, err := toAlertRule(r)
+		rule, err := ruleWithSymbol(r.ID, r.InstrumentID, r.Symbol, r.RuleType, r.Threshold,
+			r.WindowSeconds, r.Channel, r.Target, r.IsEnabled, r.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -129,33 +130,27 @@ func (d *DB) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
 
 // EnabledAlertRules returns the enabled rules the Alerting service evaluates,
 // each paired with its instrument symbol.
-func (d *DB) EnabledAlertRules(ctx context.Context) ([]EnabledRule, error) {
+func (d *DB) EnabledAlertRules(ctx context.Context) ([]RuleWithSymbol, error) {
 	rows, err := d.queries.ListEnabledAlertRules(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("db: list enabled alert rules: %w", err)
 	}
-	out := make([]EnabledRule, 0, len(rows))
+	out := make([]RuleWithSymbol, 0, len(rows))
 	for _, r := range rows {
-		threshold, ok := numericToString(r.Threshold)
-		if !ok {
-			return nil, fmt.Errorf("db: alert rule %d has an invalid threshold", r.ID)
+		rule, err := ruleWithSymbol(r.ID, r.InstrumentID, r.Symbol, r.RuleType, r.Threshold,
+			r.WindowSeconds, r.Channel, r.Target, r.IsEnabled, r.CreatedAt)
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, EnabledRule{
-			AlertRule: AlertRule{
-				ID:            r.ID,
-				InstrumentID:  r.InstrumentID,
-				RuleType:      r.RuleType,
-				Threshold:     threshold,
-				WindowSeconds: int4ToPtr(r.WindowSeconds),
-				Channel:       r.Channel,
-				Target:        r.Target,
-				IsEnabled:     r.IsEnabled,
-				CreatedAt:     r.CreatedAt.Time,
-			},
-			Symbol: r.Symbol,
-		})
+		out = append(out, rule)
 	}
 	return out, nil
+}
+
+// InstrumentIDBySymbol resolves a symbol to its instrument id, returning
+// ErrNotFound when the symbol is unknown.
+func (d *DB) InstrumentIDBySymbol(ctx context.Context, symbol string) (int64, error) {
+	return d.instrumentIDBySymbol(ctx, symbol)
 }
 
 // DeleteAlertRule removes a rule by id, returning ErrNotFound when no rule has
@@ -214,6 +209,32 @@ func toAlertRule(r sqlc.AlertRule) (AlertRule, error) {
 		Target:        r.Target,
 		IsEnabled:     r.IsEnabled,
 		CreatedAt:     r.CreatedAt.Time,
+	}, nil
+}
+
+// ruleWithSymbol assembles a RuleWithSymbol from the columns shared by the
+// symbol-joined list queries, rendering the NUMERIC threshold as an exact decimal
+// string. The two generated row types are structurally identical, so this keeps
+// their mapping in one place.
+func ruleWithSymbol(id, instrumentID int64, symbol, ruleType string, threshold pgtype.Numeric,
+	window pgtype.Int4, channel, target string, isEnabled bool, createdAt pgtype.Timestamptz) (RuleWithSymbol, error) {
+	t, ok := numericToString(threshold)
+	if !ok {
+		return RuleWithSymbol{}, fmt.Errorf("db: alert rule %d has an invalid threshold", id)
+	}
+	return RuleWithSymbol{
+		AlertRule: AlertRule{
+			ID:            id,
+			InstrumentID:  instrumentID,
+			RuleType:      ruleType,
+			Threshold:     t,
+			WindowSeconds: int4ToPtr(window),
+			Channel:       channel,
+			Target:        target,
+			IsEnabled:     isEnabled,
+			CreatedAt:     createdAt.Time,
+		},
+		Symbol: symbol,
 	}, nil
 }
 

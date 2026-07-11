@@ -78,9 +78,22 @@ func run() error {
 	}
 	defer sandboxPool.Close()
 
+	operatorToken := config.String("OPERATOR_TOKEN", "")
+	if operatorToken == "" {
+		logger.Warn("OPERATOR_TOKEN not set; alert management endpoints will reject all requests")
+	}
+
 	reg := prometheus.NewRegistry()
 	sandbox := playground.New(sandboxPool)
-	server := api.New(database, sandbox, database, logger, reg)
+	server := api.New(api.Config{
+		Reader:        database,
+		Sandbox:       sandbox,
+		Queries:       database,
+		Alerts:        database,
+		OperatorToken: operatorToken,
+		Logger:        logger,
+		Registerer:    reg,
+	})
 
 	ready := func(ctx context.Context) error { return database.Ping(ctx) }
 
