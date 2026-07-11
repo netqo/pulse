@@ -142,6 +142,33 @@ services:
     ports:
       - "${PROCESSOR_METRICS_PORT:-9102}:9102"
 
+  alerting:
+    build:
+      context: .
+      dockerfile: cmd/alerting/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-market.ticks}
+      BATCH_SIZE: ${BATCH_SIZE:-500}
+      RULE_REFRESH_SECONDS: ${RULE_REFRESH_SECONDS:-30}
+      # Set TELEGRAM_BOT_TOKEN in the environment (or a .env file) to enable
+      # Telegram delivery; Discord and generic webhooks need no server credential.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      METRICS_ADDR: ":9104"
+    ports:
+      - "${ALERTING_METRICS_PORT:-9104}:9104"
+
   api:
     build:
       context: .
