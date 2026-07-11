@@ -39,7 +39,7 @@ func (f *fakeReader) PriceSeries(ctx context.Context, symbol string, from, to ti
 func newTestServer(t *testing.T, reader Reader) http.Handler {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(reader, nil, nil, logger, prometheus.NewRegistry()).Handler()
+	return New(Config{Reader: reader, Logger: logger, Registerer: prometheus.NewRegistry()}).Handler()
 }
 
 func strptr(s string) *string { return &s }

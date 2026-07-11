@@ -11,8 +11,8 @@ import (
 
 var base = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func rule(id int64, symbol, ruleType, threshold string, window *int32) db.EnabledRule {
-	return db.EnabledRule{
+func rule(id int64, symbol, ruleType, threshold string, window *int32) db.RuleWithSymbol {
+	return db.RuleWithSymbol{
 		AlertRule: db.AlertRule{
 			ID:            id,
 			RuleType:      ruleType,
@@ -42,7 +42,7 @@ func fireCount(t *testing.T, e *Evaluator, tk domain.Tick) int {
 
 func TestPriceBelowFiresOnEdge(t *testing.T) {
 	e := NewEvaluator()
-	e.SetRules([]db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
 
 	steps := []struct {
 		price string
@@ -63,7 +63,7 @@ func TestPriceBelowFiresOnEdge(t *testing.T) {
 
 func TestPriceAboveFiresOnEdge(t *testing.T) {
 	e := NewEvaluator()
-	e.SetRules([]db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceAbove, "30000", nil)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceAbove, "30000", nil)})
 
 	if got := fireCount(t, e, tickAt("BTCUSDT", "29000", 0)); got != 0 {
 		t.Errorf("below: fired %d, want 0", got)
@@ -78,7 +78,7 @@ func TestPriceAboveFiresOnEdge(t *testing.T) {
 
 func TestCrossesFiresBothDirections(t *testing.T) {
 	e := NewEvaluator()
-	e.SetRules([]db.EnabledRule{rule(1, "ETHUSDT", db.RuleTypeCrosses, "2000", nil)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "ETHUSDT", db.RuleTypeCrosses, "2000", nil)})
 
 	steps := []struct {
 		price string
@@ -101,7 +101,7 @@ func TestCrossesFiresBothDirections(t *testing.T) {
 func TestChangePctFiresOverWindow(t *testing.T) {
 	e := NewEvaluator()
 	window := int32(60)
-	e.SetRules([]db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypeChangePct, "5", &window)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypeChangePct, "5", &window)})
 
 	// Not enough history spans the 60s window yet.
 	if got := fireCount(t, e, tickAt("BTCUSDT", "100", 0)); got != 0 {
@@ -122,7 +122,7 @@ func TestChangePctFiresOverWindow(t *testing.T) {
 
 func TestSetRulesPreservesStateAcrossRefresh(t *testing.T) {
 	e := NewEvaluator()
-	e.SetRules([]db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
 
 	if got := fireCount(t, e, tickAt("BTCUSDT", "24000", 0)); got != 1 {
 		t.Fatalf("initial dip: fired %d, want 1", got)
@@ -130,13 +130,13 @@ func TestSetRulesPreservesStateAcrossRefresh(t *testing.T) {
 
 	// An unchanged rule reload must not reset the edge flag, or the next tick that
 	// is still below the threshold would spuriously re-fire.
-	e.SetRules([]db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
 	if got := fireCount(t, e, tickAt("BTCUSDT", "23000", time.Second)); got != 0 {
 		t.Errorf("after refresh, still below: fired %d, want 0", got)
 	}
 
 	// Changing the threshold re-arms the rule.
-	e.SetRules([]db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "22000", nil)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "22000", nil)})
 	if got := fireCount(t, e, tickAt("BTCUSDT", "21000", 2*time.Second)); got != 1 {
 		t.Errorf("after threshold change: fired %d, want 1", got)
 	}
@@ -144,7 +144,7 @@ func TestSetRulesPreservesStateAcrossRefresh(t *testing.T) {
 
 func TestEvalIgnoresOtherSymbolsAndBadPrices(t *testing.T) {
 	e := NewEvaluator()
-	e.SetRules([]db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
+	e.SetRules([]db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)})
 
 	// A symbol with no rules yields no firings and no error, without parsing.
 	if got := fireCount(t, e, tickAt("ETHUSDT", "not-a-number", 0)); got != 0 {

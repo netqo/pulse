@@ -38,6 +38,15 @@ type QueryStore interface {
 	SavedQuery(ctx context.Context, id string) (db.SavedQuery, error)
 }
 
+// AlertStore manages alert rules for the operator management API. *db.DB
+// satisfies it; tests supply a fake.
+type AlertStore interface {
+	InstrumentIDBySymbol(ctx context.Context, symbol string) (int64, error)
+	CreateAlertRule(ctx context.Context, in db.CreateAlertRuleInput) (db.AlertRule, error)
+	ListAlertRules(ctx context.Context) ([]db.RuleWithSymbol, error)
+	DeleteAlertRule(ctx context.Context, id int64) error
+}
+
 // Series query bounds applied when the caller omits or overshoots them.
 const (
 	defaultSeriesLimit  = 1000
@@ -56,29 +65,46 @@ const (
 	playgroundBucketTTL = 10 * time.Minute
 )
 
-// Server wires the read data source, the SQL sandbox and the saved-query store
-// to the HTTP handlers.
+// Server wires the read data source, the SQL sandbox, the saved-query store and
+// the alert store to the HTTP handlers.
 type Server struct {
 	reader           Reader
 	sandbox          PlaygroundExecutor
 	queries          QueryStore
+	alerts           AlertStore
+	operatorToken    string
 	playgroundLimits *ipRateLimiter
 	saveLimits       *ipRateLimiter
 	logger           *slog.Logger
 	metrics          *metrics
 }
 
-// New constructs a Server and registers its request metrics with reg. sandbox
-// and queries may each be nil to disable the corresponding Playground endpoints.
-func New(reader Reader, sandbox PlaygroundExecutor, queries QueryStore, logger *slog.Logger, reg prometheus.Registerer) *Server {
+// Config wires the Server's dependencies. Sandbox, Queries and Alerts may each be
+// nil to disable the corresponding endpoints. OperatorToken, when empty, locks
+// the alert endpoints -- they reject every request -- so a deployment that
+// forgets to set it fails closed rather than exposing operator config.
+type Config struct {
+	Reader        Reader
+	Sandbox       PlaygroundExecutor
+	Queries       QueryStore
+	Alerts        AlertStore
+	OperatorToken string
+	Logger        *slog.Logger
+	Registerer    prometheus.Registerer
+}
+
+// New constructs a Server from cfg and registers its request metrics.
+func New(cfg Config) *Server {
 	return &Server{
-		reader:           reader,
-		sandbox:          sandbox,
-		queries:          queries,
+		reader:           cfg.Reader,
+		sandbox:          cfg.Sandbox,
+		queries:          cfg.Queries,
+		alerts:           cfg.Alerts,
+		operatorToken:    cfg.OperatorToken,
 		playgroundLimits: newIPRateLimiter(playgroundRate, playgroundBurst, playgroundBucketTTL),
 		saveLimits:       newIPRateLimiter(playgroundSaveRate, playgroundSaveBurst, playgroundBucketTTL),
-		logger:           logger,
-		metrics:          newMetrics(reg),
+		logger:           cfg.Logger,
+		metrics:          newMetrics(cfg.Registerer),
 	}
 }
 
@@ -102,6 +128,15 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("POST /api/v1/playground/save",
 			s.saveLimits.middleware(http.HandlerFunc(s.handleSaveQuery)))
 		mux.HandleFunc("GET /api/v1/playground/q/{id}", s.handleLoadQuery)
+	}
+	if s.alerts != nil {
+		// Alert rules are operator configuration and hold delivery secrets (chat
+		// ids, webhook URLs), so the whole resource -- reads included -- sits behind
+		// the operator token, unlike the open market-data reads.
+		auth := operatorAuth(s.operatorToken)
+		mux.Handle("GET /api/v1/alerts", auth(http.HandlerFunc(s.handleListAlerts)))
+		mux.Handle("POST /api/v1/alerts", auth(http.HandlerFunc(s.handleCreateAlert)))
+		mux.Handle("DELETE /api/v1/alerts/{id}", auth(http.HandlerFunc(s.handleDeleteAlert)))
 	}
 	return s.metrics.instrument(s.recoverer(mux))
 }

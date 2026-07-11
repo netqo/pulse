@@ -32,7 +32,7 @@ func (f *fakeStore) SavedQuery(ctx context.Context, id string) (db.SavedQuery, e
 func newStoreServer(t *testing.T, store QueryStore) http.Handler {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(&fakeReader{}, nil, store, logger, prometheus.NewRegistry()).Handler()
+	return New(Config{Reader: &fakeReader{}, Queries: store, Logger: logger, Registerer: prometheus.NewRegistry()}).Handler()
 }
 
 func postSave(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {
