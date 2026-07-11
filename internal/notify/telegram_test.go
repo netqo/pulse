@@ -43,7 +43,7 @@ func TestTelegramSenderSend(t *testing.T) {
 	})
 
 	t.Run("non-2xx response is an error carrying the status", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"ok":false,"description":"chat not found"}`))
 		}))
