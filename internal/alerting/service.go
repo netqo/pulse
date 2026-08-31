@@ -23,7 +23,7 @@ type Consumer interface {
 
 // RuleStore loads the enabled rules the service evaluates.
 type RuleStore interface {
-	EnabledAlertRules(ctx context.Context) ([]db.EnabledRule, error)
+	EnabledAlertRules(ctx context.Context) ([]db.RuleWithSymbol, error)
 }
 
 // HistoryRecorder persists a fired-alert audit record.

@@ -62,7 +62,7 @@ func TestAlertsIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EnabledAlertRules: %v", err)
 		}
-		var found *EnabledRule
+		var found *RuleWithSymbol
 		for i := range enabled {
 			if enabled[i].ID == rule.ID {
 				found = &enabled[i]
@@ -157,7 +157,7 @@ func TestAlertsIntegration(t *testing.T) {
 	})
 }
 
-func (d *DB) mustListRules(ctx context.Context, t *testing.T) []AlertRule {
+func (d *DB) mustListRules(ctx context.Context, t *testing.T) []RuleWithSymbol {
 	t.Helper()
 	rules, err := d.ListAlertRules(ctx)
 	if err != nil {
@@ -166,7 +166,7 @@ func (d *DB) mustListRules(ctx context.Context, t *testing.T) []AlertRule {
 	return rules
 }
 
-func findRule(rules []AlertRule, id int64) *AlertRule {
+func findRule(rules []RuleWithSymbol, id int64) *RuleWithSymbol {
 	for i := range rules {
 		if rules[i].ID == id {
 			return &rules[i]

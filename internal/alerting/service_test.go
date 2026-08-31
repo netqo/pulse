@@ -40,11 +40,11 @@ func (c *fakeConsumer) Commit(context.Context) error {
 }
 
 type fakeStore struct {
-	rules []db.EnabledRule
+	rules []db.RuleWithSymbol
 	err   error
 }
 
-func (s *fakeStore) EnabledAlertRules(context.Context) ([]db.EnabledRule, error) {
+func (s *fakeStore) EnabledAlertRules(context.Context) ([]db.RuleWithSymbol, error) {
 	return s.rules, s.err
 }
 
@@ -84,7 +84,7 @@ func tickJSON(t *testing.T, tk domain.Tick) []byte {
 }
 
 func TestServiceDeliversAndRecords(t *testing.T) {
-	store := &fakeStore{rules: []db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)}}
+	store := &fakeStore{rules: []db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)}}
 	notifier := &fakeNotifier{}
 	history := &fakeHistory{}
 	consumer := &fakeConsumer{batches: [][][]byte{{tickJSON(t, tickAt("BTCUSDT", "24000", 0))}}}
@@ -117,7 +117,7 @@ func TestServiceDeliversAndRecords(t *testing.T) {
 }
 
 func TestServiceRecordsFailedDelivery(t *testing.T) {
-	store := &fakeStore{rules: []db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)}}
+	store := &fakeStore{rules: []db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)}}
 	notifier := &fakeNotifier{err: errors.New("channel down")}
 	history := &fakeHistory{}
 	consumer := &fakeConsumer{batches: [][][]byte{{tickJSON(t, tickAt("BTCUSDT", "24000", 0))}}}
@@ -137,7 +137,7 @@ func TestServiceRecordsFailedDelivery(t *testing.T) {
 }
 
 func TestServiceSkipsMalformedRecords(t *testing.T) {
-	store := &fakeStore{rules: []db.EnabledRule{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)}}
+	store := &fakeStore{rules: []db.RuleWithSymbol{rule(1, "BTCUSDT", db.RuleTypePriceBelow, "25000", nil)}}
 	notifier := &fakeNotifier{}
 	history := &fakeHistory{}
 	consumer := &fakeConsumer{batches: [][][]byte{{

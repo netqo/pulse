@@ -93,24 +93,41 @@ func (q *Queries) InsertAlertHistory(ctx context.Context, arg InsertAlertHistory
 }
 
 const listAlertRules = `-- name: ListAlertRules :many
-SELECT id, instrument_id, rule_type, threshold, window_seconds, channel, target, is_enabled, created_at
-FROM alert_rules
-ORDER BY created_at DESC, id DESC
+SELECT r.id, r.instrument_id, i.symbol, r.rule_type, r.threshold, r.window_seconds,
+       r.channel, r.target, r.is_enabled, r.created_at
+FROM alert_rules r
+JOIN instruments i ON i.id = r.instrument_id
+ORDER BY r.created_at DESC, r.id DESC
 `
 
-// Lists every alerting rule, newest first, for the management API.
-func (q *Queries) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
+type ListAlertRulesRow struct {
+	ID            int64
+	InstrumentID  int64
+	Symbol        string
+	RuleType      string
+	Threshold     pgtype.Numeric
+	WindowSeconds pgtype.Int4
+	Channel       string
+	Target        string
+	IsEnabled     bool
+	CreatedAt     pgtype.Timestamptz
+}
+
+// Lists every alerting rule (enabled or not), newest first, joined to its symbol
+// for the management API.
+func (q *Queries) ListAlertRules(ctx context.Context) ([]ListAlertRulesRow, error) {
 	rows, err := q.db.Query(ctx, listAlertRules)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AlertRule{}
+	items := []ListAlertRulesRow{}
 	for rows.Next() {
-		var i AlertRule
+		var i ListAlertRulesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.InstrumentID,
+			&i.Symbol,
 			&i.RuleType,
 			&i.Threshold,
 			&i.WindowSeconds,

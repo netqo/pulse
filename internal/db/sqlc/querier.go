@@ -45,8 +45,9 @@ type Querier interface {
 	// Bulk-inserts enriched price rows using the COPY protocol, the fastest path
 	// into the partitioned prices table.
 	InsertPrices(ctx context.Context, arg []InsertPricesParams) (int64, error)
-	// Lists every alerting rule, newest first, for the management API.
-	ListAlertRules(ctx context.Context) ([]AlertRule, error)
+	// Lists every alerting rule (enabled or not), newest first, joined to its symbol
+	// for the management API.
+	ListAlertRules(ctx context.Context) ([]ListAlertRulesRow, error)
 	// Lists the enabled rules the Alerting service evaluates, joined to the symbol so
 	// the engine can match ticks by symbol without a second lookup.
 	ListEnabledAlertRules(ctx context.Context) ([]ListEnabledAlertRulesRow, error)

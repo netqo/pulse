@@ -5,10 +5,13 @@ VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, instrument_id, rule_type, threshold, window_seconds, channel, target, is_enabled, created_at;
 
 -- name: ListAlertRules :many
--- Lists every alerting rule, newest first, for the management API.
-SELECT id, instrument_id, rule_type, threshold, window_seconds, channel, target, is_enabled, created_at
-FROM alert_rules
-ORDER BY created_at DESC, id DESC;
+-- Lists every alerting rule (enabled or not), newest first, joined to its symbol
+-- for the management API.
+SELECT r.id, r.instrument_id, i.symbol, r.rule_type, r.threshold, r.window_seconds,
+       r.channel, r.target, r.is_enabled, r.created_at
+FROM alert_rules r
+JOIN instruments i ON i.id = r.instrument_id
+ORDER BY r.created_at DESC, r.id DESC;
 
 -- name: ListEnabledAlertRules :many
 -- Lists the enabled rules the Alerting service evaluates, joined to the symbol so

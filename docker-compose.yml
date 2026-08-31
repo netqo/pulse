@@ -185,6 +185,10 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
       API_ADDR: ":8080"
       METRICS_ADDR: ":9103"
+      # Bearer token guarding the alert management endpoints (GET/POST/DELETE
+      # /api/v1/alerts). Unset leaves those endpoints locked (they reject all
+      # requests); set it in the environment or a .env file to enable them.
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
     ports:
       - "${API_PORT:-8081}:8080"
       - "${API_METRICS_PORT:-9103}:9103"
