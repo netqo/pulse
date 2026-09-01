@@ -55,7 +55,7 @@ func (s *Server) writePlaygroundError(w http.ResponseWriter, r *http.Request, er
 	case errors.As(err, &queryErr):
 		writeJSON(w, http.StatusBadRequest, queryErrorDTO{Error: queryErr.Message, Code: queryErr.Code})
 	case errors.Is(err, context.Canceled):
-		s.logger.Debug("playground query canceled by client", "path", r.URL.Path)
+		s.logger.Debug("playground query canceled by client", requestAttrs(r)...)
 	default:
 		s.logger.Error("playground query failed", "error", err)
 		s.writeClientError(w, http.StatusInternalServerError, "internal error")
