@@ -1,0 +1,27 @@
+# Code ownership for Pulse. GitHub auto-requests review from the owners listed
+# here when a matching path changes. All paths are owned by the maintainer while
+# the project is solo; the explicit entries document intended stewardship as
+# contributors join.
+
+# Default owner for everything.
+*                       @netqo
+
+# Backend services and shared libraries.
+/cmd/                   @netqo
+/internal/              @netqo
+
+# Database: schema, migrations and generated access layer.
+/migrations/            @netqo
+/internal/db/           @netqo
+/sqlc.yaml              @netqo
+
+# Frontend.
+/web/                   @netqo
+
+# Infrastructure, deployment and HA topology.
+/deploy/                @netqo
+/patroni/               @netqo
+/docker-compose.yml     @netqo
+
+# CI/CD, tooling and repository meta.
+/.github/               @netqo

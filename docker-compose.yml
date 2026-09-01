@@ -1,0 +1,216 @@
+# Pulse - local development stack.
+#
+# Brings up the data-plane infrastructure the services depend on: PostgreSQL,
+# Redis and Redpanda (Kafka API), plus a one-shot migration runner and a
+# Redpanda console for broker visibility. The Go services (fetcher, processor,
+# alerting, api) are added to this file as they land in later phases.
+#
+# In-cluster clients reach Kafka at redpanda:9092; host tooling uses
+# localhost:19092. Bring it up with `make compose-up` or `docker compose up -d`.
+
+name: pulse
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulse}
+      POSTGRES_DB: ${POSTGRES_DB:-pulse}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pulse} -d ${POSTGRES_DB:-pulse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --mode=dev-container
+      - --smp=1
+      - --default-log-level=info
+    ports:
+      - "19092:19092" # Kafka API (host)
+      - "18081:18081" # Schema Registry (host)
+      - "18082:18082" # Pandaproxy / REST (host)
+      - "19644:9644"  # Admin API (host)
+    volumes:
+      - redpandadata:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "true"
+      KAFKA_SCHEMAREGISTRY_URLS: http://redpanda:8081
+    ports:
+      - "${CONSOLE_PORT:-8080}:8080"
+
+  migrate:
+    image: migrate/migrate:v4.18.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+      - up
+    restart: "no"
+
+  fetcher:
+    build:
+      context: .
+      dockerfile: cmd/fetcher/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-market.ticks}
+      BINANCE_WS_URL: ${BINANCE_WS_URL:-wss://stream.binance.com:9443/stream}
+      SYMBOLS: ${SYMBOLS:-BTCUSDT,ETHUSDT}
+      METRICS_ADDR: ":9101"
+    ports:
+      - "${FETCHER_METRICS_PORT:-9101}:9101"
+
+  processor:
+    build:
+      context: .
+      dockerfile: cmd/processor/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-market.ticks}
+      BATCH_SIZE: ${BATCH_SIZE:-500}
+      METRICS_ADDR: ":9102"
+    ports:
+      - "${PROCESSOR_METRICS_PORT:-9102}:9102"
+
+  alerting:
+    build:
+      context: .
+      dockerfile: cmd/alerting/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-market.ticks}
+      BATCH_SIZE: ${BATCH_SIZE:-500}
+      RULE_REFRESH_SECONDS: ${RULE_REFRESH_SECONDS:-30}
+      # Set TELEGRAM_BOT_TOKEN in the environment (or a .env file) to enable
+      # Telegram delivery; Discord and generic webhooks need no server credential.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      METRICS_ADDR: ":9104"
+    ports:
+      - "${ALERTING_METRICS_PORT:-9104}:9104"
+
+  api:
+    build:
+      context: .
+      dockerfile: cmd/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+      API_ADDR: ":8080"
+      METRICS_ADDR: ":9103"
+      # Bearer token guarding the alert management endpoints (GET/POST/DELETE
+      # /api/v1/alerts). Unset leaves those endpoints locked (they reject all
+      # requests); set it in the environment or a .env file to enable them.
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
+    ports:
+      - "${API_PORT:-8081}:8080"
+      - "${API_METRICS_PORT:-9103}:9103"
+
+  # One-shot historical backfill, gated behind the "seed" profile so it never
+  # starts with the default stack. Run it on demand, passing the range:
+  #   docker compose run --rm seed -symbols BTCUSDT,ETHUSDT -from 2024-01 -to 2024-03
+  seed:
+    build:
+      context: .
+      dockerfile: cmd/seed/Dockerfile
+    profiles: ["seed"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse}@postgres:5432/${POSTGRES_DB:-pulse}?sslmode=disable
+
+volumes:
+  pgdata:
+  redisdata:
+  redpandadata:

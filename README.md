@@ -38,9 +38,6 @@ artifact, not an afterthought.
 It is **not** a trading platform (no order execution, no financial advice, no real money) and **not**
 a multi-tenant SaaS. It exists to showcase database and distributed-backend engineering end to end.
 
-See [`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md) for the architectural source of truth: every
-component, technology, and schema decision, with the rationale documented inline.
-
 ## Highlights
 
 - **Database as a first-class citizen.** Range-partitioned time-series fact table, justified indexing
@@ -77,9 +74,6 @@ Four Go services, each with a single responsibility:
 | **Alerting** | Consumes the same stream on an independent consumer group, evaluates user rules, dispatches Telegram / webhook notifications, persists history. |
 | **API** | REST endpoints for the frontend and external consumers, read/write split via pgBouncer, Redis caching, the sandboxed Playground query endpoint. |
 
-The full Mermaid diagram and data-flow narrative live in
-[`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md#3-system-architecture).
-
 ## Tech stack
 
 | Layer | Choice |
@@ -102,8 +96,8 @@ The full Mermaid diagram and data-flow narrative live in
 | Kubernetes packaging | Helm 3 |
 | CI/CD | GitHub Actions |
 
-Every choice, and every rejected alternative, is defended in
-[Key design decisions](./TECHNICAL_DESIGN.md#14-key-design-decisions-defendable-rationale).
+Every technology is a deliberate choice, weighed against its alternatives, with the thesis of a
+native Go backend and the database as the centerpiece.
 
 ## Getting started
 
@@ -123,6 +117,142 @@ make test
 make lint
 ```
 
+## Historical backfill
+
+The `seed` job backfills the `prices` table from the public
+[data.binance.vision](https://data.binance.vision) monthly kline archives. It
+downloads each month, verifies its SHA256 checksum, derives the same rolling
+indicators the processor computes live, and writes the enriched rows one month
+at a time. Re-running a month replaces it (a delete and bulk copy in a single
+transaction), and the rolling window is warmed from the closes already stored
+just before the range, so a re-run is fully idempotent: it reproduces the same
+rows and the same indicator values.
+
+```bash
+# Seed BTCUSDT and ETHUSDT for Q1 2024 into the running stack.
+docker compose run --rm seed -symbols BTCUSDT,ETHUSDT -from 2024-01 -to 2024-03
+```
+
+Use a consistent `-interval` for a given range: the `prices` table records
+observations, not candle granularity, so re-seeding a range with a different
+interval replaces its rows at the new resolution.
+
+## HTTP API
+
+The `api` service exposes read-only endpoints over the enriched price data. The
+public API listens on `:8080` (mapped to host `:8081` by default); health and
+Prometheus metrics live on a separate internal listener at `:9103`.
+
+| Method and path | Description |
+| --- | --- |
+| `GET /api/v1/instruments` | List every tracked instrument. |
+| `GET /api/v1/instruments/{symbol}/latest` | Most recent price observation for a symbol. |
+| `GET /api/v1/instruments/{symbol}/prices?from=&to=&limit=` | Historical series in the half-open range `[from, to)`, returned oldest first. `from`/`to` are RFC3339 (default: the last 24h); `limit` defaults to 1000 and is capped at 5000. When more observations exist than `limit`, the most recent ones in the range are returned. |
+
+Symbols are case-insensitive. Monetary values are returned as decimal strings to
+preserve exact precision. Unknown symbols return `404`; invalid query parameters
+return `400`.
+
+```bash
+curl -s localhost:8081/api/v1/instruments/BTCUSDT/latest
+curl -s "localhost:8081/api/v1/instruments/BTCUSDT/prices?from=2025-06-01T00:00:00Z&to=2025-06-02T00:00:00Z&limit=500"
+```
+
+### SQL Playground
+
+`POST /api/v1/playground/query` executes read-only SQL and returns the columns
+and rows as JSON (numeric and timestamp values as strings to preserve precision).
+
+```bash
+curl -s localhost:8081/api/v1/playground/query \
+  -H 'content-type: application/json' \
+  -d '{"query":"SELECT symbol, base_asset FROM instruments ORDER BY symbol LIMIT 5"}'
+```
+
+Because it runs arbitrary user SQL, the endpoint is sandboxed in independent
+layers, so no single failure exposes the database:
+
+- **Dedicated, bounded pool.** The Playground has its own connection pool with a
+  small `MaxConns`, isolated from the pool serving the rest of the API, so a
+  burst of slow queries can neither exhaust nor poison the shared connections.
+- **Least-privilege role.** The query runs as `playground_readonly` (assumed via
+  `SET LOCAL ROLE`), which holds `SELECT` on a whitelist of tables and nothing
+  else -- no DDL, no DML, no access to any other object. Table and function
+  privileges are checked at plan time as this role, so a query that tries to
+  escalate its role mid-execution still cannot read a non-whitelisted object.
+- **Read-only transaction.** `BEGIN READ ONLY` rejects every write, including
+  data-modifying CTEs, regardless of the role's grants.
+- **Statement timeout.** A per-transaction `statement_timeout` cancels a runaway
+  query.
+- **Connection reset.** Each connection is reset (`DISCARD ALL`) after every
+  query, so session-scoped state (advisory locks, prepared statements, temp
+  objects) cannot leak into the next execution.
+- **Row and byte caps.** The query is wrapped in a bounded subquery, capping the
+  rows returned (and turning any multi-statement input into a syntax error), plus
+  a hard cap on the bytes streamed back.
+- **Per-IP rate limiting.** The endpoint is throttled per client IP (by the
+  connection's remote address, not a spoofable `X-Forwarded-For` header).
+
+A static pre-check rejects obviously non-read statements early for a clearer
+error, but the transaction and role are the real enforcement. Invalid or rejected
+queries return `400` with the PostgreSQL error. These layers are defense in
+depth: each is independent, so exposing the endpoint does not rest on any single
+control. (Replica-only routing is added in the replication phase, which removes
+even read load from the primary.)
+
+#### Saving and sharing
+
+A query can be saved and shared through a non-enumerable UUID:
+
+| Method and path | Description |
+| --- | --- |
+| `POST /api/v1/playground/save` | Persist a query, returning its id and load path. |
+| `GET /api/v1/playground/q/{id}` | Load a saved query by id. |
+
+```bash
+# Save a query (optional title and opaque chart_config for the frontend).
+curl -s localhost:8081/api/v1/playground/save \
+  -H 'content-type: application/json' \
+  -d '{"query":"SELECT symbol FROM instruments ORDER BY symbol","title":"symbols","chart_config":{"type":"bar"}}'
+# -> {"id":"<uuid>","url":"/api/v1/playground/q/<uuid>"}
+
+# Load it back.
+curl -s localhost:8081/api/v1/playground/q/<uuid>
+```
+
+The saved query must itself pass the read-only validation, so only a query
+shaped like a read is stored (the check gates the leading keyword, not full SQL
+validity). The UUID primary key makes the share URL non-guessable, and
+`saved_queries` is deliberately excluded from the `playground_readonly` grants,
+so sandboxed SQL cannot read back other users' saved queries. Save is throttled
+per IP; loading by id is a cheap indexed lookup. A malformed id returns `400`,
+an unknown id `404`. Saved queries currently accumulate without a retention or
+row-cap policy; adding one (TTL or a bounded count) is deferred to a later phase.
+
+## Web frontend
+
+The `web/` app is the SQL Playground UI: a React 18 + TypeScript single-page app
+built with Vite, using the monaco editor for SQL input and rendering results as
+a table. It talks to the API over the same `/api` paths documented above; in
+development the Vite dev server proxies them to the running API, so no CORS
+configuration is needed.
+
+```bash
+cd web
+bun install
+bun run dev   # Vite dev server on http://localhost:5173, proxying /api -> :8081
+```
+
+The API must be running (see above) for queries to execute. Point the proxy at a
+different API with `PULSE_API_URL`. Other scripts: `bun run build` (production
+bundle), `bun run typecheck`, `bun run lint`. To reach the dev server from
+another machine on the LAN, add `--host`: `bun run dev --host`.
+
+The results panel toggles between a table and an Apache ECharts chart (line,
+bar, or candlestick), with controls to map result columns onto the axes and
+series (OHLC columns are auto-detected by name for candlesticks). The save and
+share UI lands in a later slice.
+
 ## Roadmap
 
 Development proceeds in independently demonstrable phases, each with an explicit "done" checkpoint:
@@ -134,8 +264,6 @@ Development proceeds in independently demonstrable phases, each with an explicit
 - **Phase 4** - Observability: postgres_exporter, Prometheus, committed Grafana dashboards.
 - **Phase 5** - Replication + failover: primary + 2 replicas via Patroni, documented failover.
 - **Phase 6** - Polish: audit triggers, materialized views, Helm chart, `v1.0.0`.
-
-Full detail in [Execution roadmap](./TECHNICAL_DESIGN.md#13-execution-roadmap-by-phase).
 
 ## Topics
 

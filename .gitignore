@@ -48,3 +48,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local-only design doc: never commit.
+TECHNICAL_DESIGN.md
