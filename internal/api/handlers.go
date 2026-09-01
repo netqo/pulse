@@ -210,9 +210,9 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, db.ErrNotFound):
 		s.writeClientError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, context.Canceled):
-		s.logger.Debug("request canceled by client", "method", r.Method, "path", r.URL.Path)
+		s.logger.Debug("request canceled by client", requestAttrs(r)...)
 	default:
-		s.logger.Error("request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+		s.logger.Error("request failed", append(requestAttrs(r), "error", err)...)
 		s.writeClientError(w, http.StatusInternalServerError, "internal error")
 	}
 }
